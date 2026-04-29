@@ -1,0 +1,26 @@
+[package]
+name = "espresso-kms-signer"
+version = "0.1.0"
+edition = "2021"
+description = "AWS KMS signing sidecar for L1 batch submission transactions"
+
+[[bin]]
+name = "espresso-kms-signer"
+path = "src/main.rs"
+
+[dependencies]
+alloy              = { version = "2.0.4", features = ["signer-aws", "consensus", "rpc-types-eth", "eips"] }
+aws-config         = "1.8.16"
+aws-sdk-kms        = "1.106.0"
+jsonrpsee          = { version = "0.26.0", features = ["server", "macros"] }
+tokio              = { version = "1", features = ["full"] }
+serde              = { version = "1", features = ["derive"] }
+serde_json         = "1"
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+eyre               = "0.6"
+hex                = "0.4"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
