@@ -22,8 +22,7 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        let kms_key_id = std::env::var("AWS_KMS_KEY_ID")
-            .wrap_err("AWS_KMS_KEY_ID must be set")?;
+        let kms_key_id = std::env::var("AWS_KMS_KEY_ID").wrap_err("AWS_KMS_KEY_ID must be set")?;
         let chain_id: u64 = std::env::var("CHAIN_ID")
             .wrap_err("CHAIN_ID must be set")?
             .parse()
@@ -32,11 +31,20 @@ impl Config {
             .unwrap_or_else(|_| "127.0.0.1:8547".into())
             .parse()
             .wrap_err("LISTEN_ADDR must be a valid socket address")?;
-        let allowed_to = std::env::var("ALLOWED_TO").ok().map(|s| {
-            s.split(',')
-                .filter_map(|a| a.trim().parse::<Address>().ok())
-                .collect()
-        });
+        let allowed_to = if let Ok(raw) = std::env::var("ALLOWED_TO") {
+            let addrs = raw
+                .split(',')
+                .map(|a| {
+                    a.trim()
+                        .parse::<Address>()
+                        .wrap_err_with(|| format!("invalid address in ALLOWED_TO: {a}"))
+                })
+                .collect::<Result<Vec<_>>>()
+                .wrap_err("ALLOWED_TO must be a comma-separated list of hex addresses")?;
+            Some(addrs)
+        } else {
+            None
+        };
         let tls = match (
             std::env::var("TLS_CERT_FILE").ok(),
             std::env::var("TLS_KEY_FILE").ok(),
@@ -50,6 +58,12 @@ impl Config {
             _ => eyre::bail!("TLS_CERT_FILE and TLS_KEY_FILE must both be set or both be unset"),
         };
 
-        Ok(Self { kms_key_id, chain_id, listen_addr, allowed_to, tls })
+        Ok(Self {
+            kms_key_id,
+            chain_id,
+            listen_addr,
+            allowed_to,
+            tls,
+        })
     }
 }

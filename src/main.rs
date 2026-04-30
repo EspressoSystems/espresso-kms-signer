@@ -30,12 +30,17 @@ async fn main() -> Result<()> {
     );
     info!(address = %signer.address, kms_key_id = %config.kms_key_id, "signer ready");
 
-    let tls_acceptor = config.tls.as_ref().map(|t| {
-        let mtls = t.client_ca_file.is_some();
-        let acceptor = TlsAcceptor::from(t.build_server_config()?);
-        info!(mtls, "TLS enabled");
-        Ok::<_, eyre::Report>(acceptor)
-    }).transpose().wrap_err("invalid TLS configuration")?;
+    let tls_acceptor = config
+        .tls
+        .as_ref()
+        .map(|t| {
+            let mtls = t.client_ca_file.is_some();
+            let acceptor = TlsAcceptor::from(t.build_server_config()?);
+            info!(mtls, "TLS enabled");
+            Ok::<_, eyre::Report>(acceptor)
+        })
+        .transpose()
+        .wrap_err("invalid TLS configuration")?;
 
     let listener = TcpListener::bind(config.listen_addr)
         .await
@@ -95,8 +100,9 @@ async fn main() -> Result<()> {
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{SignalKind, signal};
-        let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
         tokio::select! {
             _ = sigterm.recv() => {}
             _ = tokio::signal::ctrl_c() => {}
