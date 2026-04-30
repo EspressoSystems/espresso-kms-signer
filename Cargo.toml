@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "AWS KMS signing sidecar for L1 batch submission transactions"
 
+[lib]
+name = "espresso_kms_signer"
+path = "src/lib.rs"
+
 [[bin]]
 name = "espresso-kms-signer"
 path = "src/main.rs"
@@ -19,8 +23,7 @@ serde_json         = "1"
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 eyre               = "0.6"
-hex                = "0.4"
-thiserror = "2.0.18"
+thiserror          = "2.0.18"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+alloy = { version = "2.0.4", features = ["signer-local"] }

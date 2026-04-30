@@ -2014,7 +2014,6 @@ dependencies = [
  "aws-config",
  "aws-sdk-kms",
  "eyre",
- "hex",
  "jsonrpsee",
  "serde",
  "serde_json",

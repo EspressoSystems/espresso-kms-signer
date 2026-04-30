@@ -15,8 +15,6 @@ pub enum SignerError {
     FromMismatch { got: String, expected: String },
     #[error("`to` address not in allowlist: {0}")]
     ToNotAllowed(String),
-    #[error("KMS signing failed")]
-    Kms(#[source] eyre::Report),
     #[error("internal error: {0}")]
     Internal(String),
 }

@@ -48,11 +48,9 @@ impl SignerRpcServer for SignerServer {
     }
 
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String> {
-        // Snapshot for logging upfront so every warn/error below carries context.
         let log_to = args.to.map(|a| format!("{a:#x}")).unwrap_or_else(|| "none".into());
         let log_nonce = args.nonce.unwrap_or_default();
 
-        // Validate chain_id and from before touching KMS.
         let chain_id: u64 = args
             .chain_id
             .ok_or_else(|| ErrorObjectOwned::from(SignerError::MissingField("chainId")))?
@@ -77,7 +75,6 @@ impl SignerRpcServer for SignerServer {
             return Err(ErrorObjectOwned::from(e));
         }
 
-        // When an allowlist is configured, `to` is required and must be in it.
         if let Some(allowed) = &self.config.allowed_to {
             let to = args
                 .to
@@ -89,7 +86,6 @@ impl SignerRpcServer for SignerServer {
             }
         }
 
-        // Log before the KMS call so a hang or crash mid-signing is observable.
         info!(to = %log_to, nonce = %log_nonce, "signing request received, calling KMS");
 
         let mut typed_tx = args
@@ -106,9 +102,7 @@ impl SignerRpcServer for SignerServer {
             })?;
 
         let envelope = typed_tx.into_envelope(sig);
-        let tx_hash = envelope.tx_hash();
-
-        info!(tx_hash = %tx_hash, to = %log_to, nonce = %log_nonce, "transaction signed successfully");
+        info!(tx_hash = %envelope.tx_hash(), to = %log_to, nonce = %log_nonce, "transaction signed successfully");
 
         Ok(format!("0x{}", hex::encode(envelope.encoded_2718())))
     }
