@@ -15,6 +15,10 @@ use espresso_kms_signer::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("rustls crypto provider already installed");
+
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(fmt::layer().json())
@@ -70,7 +74,11 @@ async fn main() -> Result<()> {
             result = listener.accept() => {
                 let (stream, peer) = match result {
                     Ok(v) => v,
-                    Err(e) => { error!(error = %e, "accept failed"); continue; }
+                    Err(e) => {
+                        error!(error = %e, "accept failed");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
                 };
 
                 let svc = svc_builder.clone().build(methods.clone(), stop_handle.clone());
