@@ -71,7 +71,7 @@ ALLOWED_TO=0xYourBatchInboxAddress
 
 ## Test fixtures
 
-The JSON files under `tests/fixtures/` are committed golden outputs produced by a small Go program that uses op-geth's `TransactionArgs` encoding. Re-run the generator only if the wire format changes:
+The JSON files under `tests/fixtures/` are committed expected outputs produced by a small Go program that uses op-geth's `TransactionArgs` encoding. Re-run the generator only if the wire format changes:
 
 ```bash
 cd tests/fixtures/gen

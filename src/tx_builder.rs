@@ -3,13 +3,12 @@ use alloy::{
     eips::eip2930::AccessList,
     primitives::{Address, Bytes, B256, TxKind, U256},
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::error::SignerError;
 
-/// Wire shape of `eth_signTransaction` — matches go-ethereum's `TransactionArgs`.
-/// Fields use camelCase and hexutil encoding per REQ-F-001.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Wire shape of `eth_signTransaction` — matches go-ethereum's `TransactionArgs` JSON encoding.
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionArgs {
     pub from: Option<Address>,
@@ -52,7 +51,6 @@ impl TransactionArgs {
             ));
         }
 
-        // Extract fields common to both types.
         let common = CommonFields {
             chain_id: parse_field(self.chain_id, "chainId")?,
             nonce: parse_field(self.nonce, "nonce")?,
@@ -62,11 +60,9 @@ impl TransactionArgs {
             access_list: self.access_list.unwrap_or_default(),
         };
 
-        // Fee fields are required by both types — validate once, use in both branches.
         let max_fee_per_gas: u128 = parse_field(self.max_fee_per_gas, "maxFeePerGas")?;
         let max_priority_fee_per_gas: u128 = parse_field(self.max_priority_fee_per_gas, "maxPriorityFeePerGas")?;
 
-        // Split only on the type-specific fields.
         if is_blob {
             Ok(TypedTransaction::Eip4844(TxEip4844Variant::TxEip4844(TxEip4844 {
                 chain_id: common.chain_id,
