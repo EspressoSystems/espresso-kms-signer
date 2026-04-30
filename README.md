@@ -69,6 +69,18 @@ Optionally restrict signing to a single BatchInbox address:
 ALLOWED_TO=0xYourBatchInboxAddress
 ```
 
+## Test fixtures
+
+The JSON files under `tests/fixtures/` are committed golden outputs produced by a small Go program that uses op-geth's `TransactionArgs` encoding. Re-run the generator only if the wire format changes:
+
+```bash
+cd tests/fixtures/gen
+go mod tidy          # first time, or after go.mod changes
+go run . -out ../
+```
+
+Commit the updated `.json` files alongside any code change that affects `TransactionArgs` serialisation.
+
 ## Configuration reference
 
 | Variable          | Required | Default           | Description                                  |
