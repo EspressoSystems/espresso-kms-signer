@@ -1,6 +1,7 @@
 pub mod error;
 pub mod rpc;
 pub mod signer;
+pub mod tls;
 pub mod tx_builder;
 
 use std::net::SocketAddr;
@@ -8,12 +9,15 @@ use std::net::SocketAddr;
 use alloy::primitives::Address;
 use eyre::{Context, Result};
 
+use crate::tls::TlsConfig;
+
 #[derive(Debug)]
 pub struct Config {
     pub kms_key_id: String,
     pub chain_id: u64,
     pub listen_addr: SocketAddr,
     pub allowed_to: Option<Vec<Address>>,
+    pub tls: Option<TlsConfig>,
 }
 
 impl Config {
@@ -33,6 +37,19 @@ impl Config {
                 .filter_map(|a| a.trim().parse::<Address>().ok())
                 .collect()
         });
-        Ok(Self { kms_key_id, chain_id, listen_addr, allowed_to })
+        let tls = match (
+            std::env::var("TLS_CERT_FILE").ok(),
+            std::env::var("TLS_KEY_FILE").ok(),
+        ) {
+            (Some(cert_file), Some(key_file)) => Some(TlsConfig {
+                cert_file,
+                key_file,
+                client_ca_file: std::env::var("TLS_CLIENT_CA_FILE").ok(),
+            }),
+            (None, None) => None,
+            _ => eyre::bail!("TLS_CERT_FILE and TLS_KEY_FILE must both be set or both be unset"),
+        };
+
+        Ok(Self { kms_key_id, chain_id, listen_addr, allowed_to, tls })
     }
 }
