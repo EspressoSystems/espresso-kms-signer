@@ -4,15 +4,20 @@
 
 FROM --platform=$BUILDPLATFORM rust:1.87-alpine AS builder
 
-RUN apk add --no-cache musl-dev
+# aws-lc-sys (pulled in by aws-sdk-kms) requires cmake, perl, and make.
+RUN apk add --no-cache musl-dev cmake perl make
+
+RUN rustup target add x86_64-unknown-linux-musl
 
 WORKDIR /build
 
 # Cache dependencies before copying source.
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo 'fn main(){}' > src/main.rs \
+RUN mkdir src \
+    && echo 'fn main(){}' > src/main.rs \
+    && echo '' > src/lib.rs \
     && cargo build --release --target x86_64-unknown-linux-musl \
-    && rm -rf src target/x86_64-unknown-linux-musl/release/deps/espresso_kms_signer*
+    && rm -rf src target/x86_64-unknown-linux-musl/release/deps/espresso*
 
 COPY src ./src
 RUN cargo build --release --target x86_64-unknown-linux-musl
