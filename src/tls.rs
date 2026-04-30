@@ -2,9 +2,9 @@ use std::{fs::File, io::BufReader, path::Path, sync::Arc};
 
 use eyre::{Context, Result};
 use rustls::{
-    ServerConfig,
     pki_types::{CertificateDer, PrivateKeyDer},
     server::WebPkiClientVerifier,
+    ServerConfig,
 };
 use rustls_pemfile::{certs, private_key};
 

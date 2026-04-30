@@ -1,7 +1,7 @@
 use alloy::{
     consensus::{TxEip1559, TxEip4844, TxEip4844Variant, TypedTransaction},
     eips::eip2930::AccessList,
-    primitives::{Address, Bytes, B256, TxKind, U256},
+    primitives::{Address, Bytes, TxKind, B256, U256},
 };
 use serde::Deserialize;
 
@@ -14,7 +14,7 @@ pub struct TransactionArgs {
     pub from: Option<Address>,
     pub to: Option<Address>,
     pub gas: Option<U256>,
-    pub gas_price: Option<U256>,
+    pub gas_price: Option<U256>, // accepted for go-ethereum wire compatibility; ignored (legacy txs unsupported)
     pub max_fee_per_gas: Option<U256>,
     pub max_priority_fee_per_gas: Option<U256>,
     pub value: Option<U256>,
@@ -61,22 +61,25 @@ impl TransactionArgs {
         };
 
         let max_fee_per_gas: u128 = parse_field(self.max_fee_per_gas, "maxFeePerGas")?;
-        let max_priority_fee_per_gas: u128 = parse_field(self.max_priority_fee_per_gas, "maxPriorityFeePerGas")?;
+        let max_priority_fee_per_gas: u128 =
+            parse_field(self.max_priority_fee_per_gas, "maxPriorityFeePerGas")?;
 
         if is_blob {
-            Ok(TypedTransaction::Eip4844(TxEip4844Variant::TxEip4844(TxEip4844 {
-                chain_id: common.chain_id,
-                nonce: common.nonce,
-                gas_limit: common.gas_limit,
-                max_fee_per_gas,
-                max_priority_fee_per_gas,
-                to: self.to.ok_or(SignerError::MissingField("to"))?,
-                value: common.value,
-                input: common.input,
-                access_list: common.access_list,
-                max_fee_per_blob_gas: parse_field(self.blob_fee_cap, "blobFeeCap")?,
-                blob_versioned_hashes: self.blob_hashes.unwrap_or_default(),
-            })))
+            Ok(TypedTransaction::Eip4844(TxEip4844Variant::TxEip4844(
+                TxEip4844 {
+                    chain_id: common.chain_id,
+                    nonce: common.nonce,
+                    gas_limit: common.gas_limit,
+                    max_fee_per_gas,
+                    max_priority_fee_per_gas,
+                    to: self.to.ok_or(SignerError::MissingField("to"))?,
+                    value: common.value,
+                    input: common.input,
+                    access_list: common.access_list,
+                    max_fee_per_blob_gas: parse_field(self.blob_fee_cap, "blobFeeCap")?,
+                    blob_versioned_hashes: self.blob_hashes.unwrap_or_default(),
+                },
+            )))
         } else {
             Ok(TypedTransaction::Eip1559(TxEip1559 {
                 chain_id: common.chain_id,
@@ -134,7 +137,10 @@ mod tests {
         assert_eq!(tx.max_priority_fee_per_gas, 1_000_000);
         assert_eq!(tx.value, U256::from(1u64));
         assert_eq!(tx.input.as_ref(), b"\xde\xad\xbe\xef");
-        assert_eq!(tx.to, TxKind::Call(address!("0000000000000000000000000000000000000002")));
+        assert_eq!(
+            tx.to,
+            TxKind::Call(address!("0000000000000000000000000000000000000002"))
+        );
     }
 
     #[test]
