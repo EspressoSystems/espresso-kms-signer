@@ -1,5 +1,8 @@
 use alloy::{
-    consensus::TypedTransaction, eips::eip2718::Encodable2718, network::TxSigner, primitives::hex,
+    consensus::TypedTransaction,
+    eips::eip2718::Encodable2718,
+    network::TxSigner,
+    primitives::hex,
     signers::local::PrivateKeySigner,
 };
 use espresso_kms_signer::tx_builder::TransactionArgs;
@@ -35,15 +38,8 @@ async fn run_fixture(path: &Path) {
         .await
         .unwrap_or_else(|e| panic!("{}: sign: {e}", fixture.description));
 
-    let got = format!(
-        "0x{}",
-        hex::encode(typed_tx.into_envelope(sig).encoded_2718())
-    );
-    assert_eq!(
-        got, fixture.expected_rlp,
-        "{}: RLP mismatch",
-        fixture.description
-    );
+    let got = format!("0x{}", hex::encode(typed_tx.into_envelope(sig).encoded_2718()));
+    assert_eq!(got, fixture.expected_rlp, "{}: RLP mismatch", fixture.description);
 }
 
 macro_rules! fixture_test {
