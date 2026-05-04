@@ -96,7 +96,7 @@ impl TransactionArgs {
 fn parse_field<T: TryFrom<U256>>(val: Option<U256>, field: &'static str) -> Result<T, SignerError> {
     val.ok_or(SignerError::MissingField(field))?
         .try_into()
-        .map_err(|_| SignerError::Internal(format!("{field} overflow")))
+        .map_err(|_| SignerError::InvalidField(format!("{field} overflow")))
 }
 
 #[cfg(test)]
@@ -210,5 +210,42 @@ mod tests {
             args.into_typed_transaction(),
             Err(SignerError::MissingField("to"))
         ));
+    }
+
+    #[test]
+    fn gas_overflow_rejected() {
+        let mut args = base_1559();
+        args.gas = Some(U256::MAX);
+        assert!(matches!(
+            args.into_typed_transaction(),
+            Err(SignerError::InvalidField(_))
+        ));
+    }
+
+    #[test]
+    fn nonce_zero_accepted() {
+        let mut args = base_1559();
+        args.nonce = Some(U256::ZERO);
+        let TypedTransaction::Eip1559(tx) = args.into_typed_transaction().unwrap() else {
+            panic!("expected EIP-1559 transaction");
+        };
+        assert_eq!(tx.nonce, 0);
+    }
+
+    #[test]
+    fn access_list_mapped_correctly() {
+        use alloy::eips::eip2930::{AccessList, AccessListItem};
+        use alloy::primitives::B256;
+
+        let mut args = base_1559();
+        let item = AccessListItem {
+            address: address!("0000000000000000000000000000000000000003"),
+            storage_keys: vec![B256::ZERO],
+        };
+        args.access_list = Some(AccessList(vec![item.clone()]));
+        let TypedTransaction::Eip1559(tx) = args.into_typed_transaction().unwrap() else {
+            panic!("expected EIP-1559 transaction");
+        };
+        assert_eq!(tx.access_list.0, vec![item]);
     }
 }
