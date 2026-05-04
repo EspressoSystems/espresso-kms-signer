@@ -17,7 +17,7 @@ use espresso_kms_signer::{
 async fn main() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
-        .expect("rustls crypto provider already installed");
+        .map_err(|_| eyre::eyre!("failed to install rustls crypto provider"))?;
 
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
