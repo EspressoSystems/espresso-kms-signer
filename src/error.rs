@@ -1,5 +1,8 @@
 use jsonrpsee::types::ErrorObjectOwned;
 
+pub const INVALID_PARAMS: i32 = -32602;
+pub const SERVER_ERROR: i32 = -32000;
+
 #[derive(Debug, thiserror::Error)]
 pub enum SignerError {
     // caller errors → JSON-RPC -32602 invalid params
@@ -7,6 +10,8 @@ pub enum SignerError {
     MissingField(&'static str),
     #[error("unsupported transaction type: {0}")]
     UnsupportedTxType(String),
+    #[error("invalid field value: {0}")]
+    InvalidField(String),
 
     // server errors → JSON-RPC -32000
     #[error("chain ID mismatch: got {got}, expected {expected}")]
@@ -22,8 +27,10 @@ pub enum SignerError {
 impl From<SignerError> for ErrorObjectOwned {
     fn from(e: SignerError) -> Self {
         let code = match &e {
-            SignerError::MissingField(_) | SignerError::UnsupportedTxType(_) => -32602,
-            _ => -32000,
+            SignerError::MissingField(_)
+            | SignerError::UnsupportedTxType(_)
+            | SignerError::InvalidField(_) => INVALID_PARAMS,
+            _ => SERVER_ERROR,
         };
         ErrorObjectOwned::owned(code, e.to_string(), None::<()>)
     }

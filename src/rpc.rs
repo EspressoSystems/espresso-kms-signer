@@ -52,7 +52,7 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
             .ok_or_else(|| ErrorObjectOwned::from(SignerError::MissingField("chainId")))?
             .try_into()
             .map_err(|_| {
-                ErrorObjectOwned::from(SignerError::Internal("chainId overflow".into()))
+                ErrorObjectOwned::from(SignerError::InvalidField("chainId overflow".into()))
             })?;
 
         if chain_id != self.config.chain_id {
@@ -99,7 +99,7 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
             .await
             .map_err(|err| {
                 error!(error = %err, to = %log_to, nonce = %log_nonce, "KMS signing failed");
-                ErrorObjectOwned::owned(-32000, "KMS signing failed", None::<()>)
+                ErrorObjectOwned::owned(crate::error::SERVER_ERROR, "KMS signing failed", None::<()>)
             })?;
 
         let envelope = typed_tx.into_envelope(sig);
