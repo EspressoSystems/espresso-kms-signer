@@ -1,5 +1,5 @@
 use alloy::{
-    consensus::TypedTransaction,
+    consensus::{SignableTransaction, TypedTransaction},
     eips::eip2718::Encodable2718,
     network::TxSigner,
     primitives::hex,
@@ -23,18 +23,40 @@ async fn run_fixture(path: &Path) {
     let fixture: Fixture = serde_json::from_str(&raw)
         .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
 
-    let signer: PrivateKeySigner = fixture.private_key.parse()
+    let signer: PrivateKeySigner = fixture
+        .private_key
+        .parse()
         .unwrap_or_else(|e| panic!("{}: bad private key: {e}", fixture.description));
 
-    let mut typed_tx: TypedTransaction = fixture.input
+    let mut typed_tx: TypedTransaction = fixture
+        .input
         .into_typed_transaction()
         .unwrap_or_else(|e| panic!("{}: into_typed_transaction: {e}", fixture.description));
 
-    let sig = signer.sign_transaction(&mut typed_tx).await
+    let sig = signer
+        .sign_transaction(&mut typed_tx)
+        .await
         .unwrap_or_else(|e| panic!("{}: sign: {e}", fixture.description));
 
-    let got = format!("0x{}", hex::encode(typed_tx.into_envelope(sig).encoded_2718()));
-    assert_eq!(got, fixture.expected_rlp, "{}: RLP mismatch", fixture.description);
+    let recovered = sig
+        .recover_address_from_prehash(&typed_tx.signature_hash())
+        .unwrap_or_else(|e| panic!("{}: recover address: {e}", fixture.description));
+    assert_eq!(
+        recovered,
+        TxSigner::address(&signer),
+        "{}: recovered address mismatch",
+        fixture.description
+    );
+
+    let got = format!(
+        "0x{}",
+        hex::encode(typed_tx.into_envelope(sig).encoded_2718())
+    );
+    assert_eq!(
+        got, fixture.expected_rlp,
+        "{}: RLP mismatch",
+        fixture.description
+    );
 }
 
 macro_rules! fixture_test {
