@@ -99,7 +99,11 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
             .await
             .map_err(|err| {
                 error!(error = %err, to = %log_to, nonce = %log_nonce, "KMS signing failed");
-                ErrorObjectOwned::owned(crate::error::SERVER_ERROR, "KMS signing failed", None::<()>)
+                ErrorObjectOwned::owned(
+                    crate::error::SERVER_ERROR,
+                    "KMS signing failed",
+                    None::<()>,
+                )
             })?;
 
         let envelope = typed_tx.into_envelope(sig);
