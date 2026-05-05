@@ -1,0 +1,15 @@
+{
+  "description": "EIP-1559 basic transfer",
+  "privateKey": "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+  "input": {
+    "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+    "to": "0xff00000000000000000000000000000011155111",
+    "gas": "0x5208",
+    "maxFeePerGas": "0x3b9aca00",
+    "maxPriorityFeePerGas": "0xf4240",
+    "value": "0x1",
+    "nonce": "0x0",
+    "chainId": "0xaa36a7"
+  },
+  "expectedRlp": "0x02f86c83aa36a780830f4240843b9aca0082520894ff000000000000000000000000000000111551110180c001a0b8b24f453e2d27060e301dbb5c75b14942e093e5297c39bddef0c7fab3b52fd7a039dd1172cd7a82d012c73d0a4b7b7788f7ce45045eee8271b29c80c6978a11ec"
+}
