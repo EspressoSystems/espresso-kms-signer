@@ -117,7 +117,7 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
 mod tests {
     use super::*;
     use alloy::{
-        consensus::TypedTransaction,
+        consensus::{SignableTransaction, TypedTransaction},
         primitives::{address, TxKind, U256},
     };
     use std::net::SocketAddr;
@@ -286,6 +286,14 @@ mod tests {
         assert_eq!(inner.value, U256::from(1u64));
         assert_eq!(inner.to, TxKind::Call(allowed));
         assert_eq!(inner.access_list.0.len(), 1);
+        assert_eq!(
+            inner.access_list.0[0].address,
+            address!("0000000000000000000000000000000000000003")
+        );
+        assert_eq!(
+            inner.access_list.0[0].storage_keys,
+            vec![alloy::primitives::B256::ZERO]
+        );
 
         let recovered = signed
             .signature()
