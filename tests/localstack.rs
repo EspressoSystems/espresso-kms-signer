@@ -15,7 +15,10 @@
 ///
 use std::sync::Arc;
 
-use alloy::{eips::eip2718::Decodable2718, primitives::{address, U256}};
+use alloy::{
+    eips::eip2718::Decodable2718,
+    primitives::{address, U256},
+};
 use espresso_kms_signer::{
     rpc::{SignerRpcServer, SignerServer},
     signer::KmsSigner,
@@ -74,8 +77,8 @@ async fn localstack_signs_eip1559_transaction() {
         .expect("signing should succeed");
 
     let bytes = alloy::primitives::hex::decode(&result[2..]).unwrap();
-    let tx = alloy::consensus::TxEnvelope::decode_2718_exact(&bytes)
-        .expect("invalid EIP-2718 encoding");
+    let tx =
+        alloy::consensus::TxEnvelope::decode_2718_exact(&bytes).expect("invalid EIP-2718 encoding");
 
     let alloy::consensus::TxEnvelope::Eip1559(signed) = tx else {
         panic!("expected EIP-1559 transaction");
