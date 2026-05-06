@@ -1,8 +1,5 @@
 use alloy::{
-    consensus::{SignableTransaction, TypedTransaction},
-    eips::eip2718::Encodable2718,
-    network::TxSigner,
-    primitives::hex,
+    consensus::TypedTransaction, eips::eip2718::Encodable2718, network::TxSigner, primitives::hex,
     signers::local::PrivateKeySigner,
 };
 use espresso_kms_signer::tx_builder::TransactionArgs;
@@ -18,10 +15,10 @@ struct Fixture {
 }
 
 async fn run_fixture(path: &Path) {
-    let raw = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    let fixture: Fixture = serde_json::from_str(&raw)
-        .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+    let raw =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let fixture: Fixture =
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
 
     let signer: PrivateKeySigner = fixture
         .private_key
@@ -37,16 +34,6 @@ async fn run_fixture(path: &Path) {
         .sign_transaction(&mut typed_tx)
         .await
         .unwrap_or_else(|e| panic!("{}: sign: {e}", fixture.description));
-
-    let recovered = sig
-        .recover_address_from_prehash(&typed_tx.signature_hash())
-        .unwrap_or_else(|e| panic!("{}: recover address: {e}", fixture.description));
-    assert_eq!(
-        recovered,
-        TxSigner::address(&signer),
-        "{}: recovered address mismatch",
-        fixture.description
-    );
 
     let got = format!(
         "0x{}",

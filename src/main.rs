@@ -1,18 +1,24 @@
 use std::sync::Arc;
 
 use eyre::{Context, Result};
-use jsonrpsee::server::Server;
-use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use jsonrpsee::server::{serve_with_graceful_shutdown, stop_channel};
+use tokio::net::TcpListener;
+use tokio_rustls::TlsAcceptor;
+use tracing::{error, info, warn};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use espresso_kms_signer::{
-    Config,
     rpc::{SignerRpcServer, SignerServer},
     signer::KmsSigner,
+    Config,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| eyre::eyre!("failed to install rustls crypto provider"))?;
+
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(fmt::layer().json())
@@ -28,15 +34,88 @@ async fn main() -> Result<()> {
     );
     info!(address = %signer.address, kms_key_id = %config.kms_key_id, "signer ready");
 
-    let config = Arc::new(config);
-    let server = Server::builder()
-        .build(config.listen_addr)
+    let tls_acceptor = config
+        .tls
+        .as_ref()
+        .map(|t| {
+            let mtls = t.client_ca_file.is_some();
+            let acceptor = TlsAcceptor::from(t.build_server_config()?);
+            info!(mtls, "TLS enabled");
+            Ok::<_, eyre::Report>(acceptor)
+        })
+        .transpose()
+        .wrap_err("invalid TLS configuration")?;
+
+    let listener = TcpListener::bind(config.listen_addr)
         .await
         .wrap_err("failed to bind RPC server")?;
 
-    let handle = server.start(SignerServer::new(signer, config).into_rpc());
+    let methods = SignerServer::new(signer, Arc::new(config)).into_rpc();
+    let svc_builder = jsonrpsee::server::Server::builder().to_service_builder();
+    let (stop_handle, server_handle) = stop_channel();
+
+    // Forward OS shutdown signals to the jsonrpsee stop channel so in-flight
+    // requests complete before the process exits.
+    tokio::spawn({
+        let server_handle = server_handle.clone();
+        async move {
+            shutdown_signal().await;
+            let _ = server_handle.stop();
+        }
+    });
+
     info!("RPC server listening");
 
-    handle.stopped().await;
+    let mut shutdown = std::pin::pin!(stop_handle.clone().shutdown());
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut shutdown => break,
+            result = listener.accept() => {
+                let (stream, peer) = match result {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!(error = %e, "accept failed");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
+                };
+
+                let svc = svc_builder.clone().build(methods.clone(), stop_handle.clone());
+                let stop = stop_handle.clone().shutdown();
+                let acceptor = tls_acceptor.clone();
+
+                tokio::spawn(async move {
+                    let result = match acceptor {
+                        Some(a) => match a.accept(stream).await {
+                            Ok(s) => serve_with_graceful_shutdown(s, svc, stop).await,
+                            Err(e) => { warn!(peer = %peer, error = %e, "TLS handshake failed"); return; }
+                        },
+                        None => serve_with_graceful_shutdown(stream, svc, stop).await,
+                    };
+                    if let Err(e) = result {
+                        warn!(peer = %peer, error = %e, "connection error");
+                    }
+                });
+            }
+        }
+    }
+
+    server_handle.stopped().await;
     Ok(())
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = sigterm.recv() => {}
+            _ = tokio::signal::ctrl_c() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await.ok();
 }

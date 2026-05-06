@@ -89,6 +89,9 @@ Commit the updated `.json` files alongside any code change that affects `Transac
 | `AWS_REGION`      | yes      | —                 | AWS region                                   |
 | `CHAIN_ID`        | yes      | —                 | EVM chain ID; requests with other IDs are rejected |
 | `LISTEN_ADDR`     | no       | `127.0.0.1:8547` | TCP socket the JSON-RPC server binds to     |
-| `AWS_ENDPOINT_URL`| no       | —                 | Override KMS endpoint (localstack)           |
-| `ALLOWED_TO`      | no       | —                 | Comma-separated allowlist of `to` addresses  |
+| `AWS_ENDPOINT_URL`    | no       | —                 | Override KMS endpoint (localstack)                        |
+| `ALLOWED_TO`          | no       | —                 | Comma-separated allowlist of `to` addresses               |
+| `TLS_CERT_FILE`       | no       | —                 | Path to PEM server certificate chain; enables TLS         |
+| `TLS_KEY_FILE`        | no       | —                 | Path to PEM server private key; required when TLS_CERT_FILE is set |
+| `TLS_CLIENT_CA_FILE`  | no       | —                 | Path to PEM CA certificate for verifying client certs; enables mTLS |
 
