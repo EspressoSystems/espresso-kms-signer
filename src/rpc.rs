@@ -45,7 +45,7 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
     }
 
     async fn signer_address(&self) -> RpcResult<String> {
-        Ok(format!("{:#x}", self.signer.address()))
+        Ok(self.signer.address().to_string())
     }
 
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String> {

@@ -98,4 +98,11 @@ async fn localstack_signs_eip1559_transaction() {
         .recover_address_from_prehash(&signed.tx().signature_hash())
         .expect("failed to recover signer");
     assert_eq!(recovered, signer.address);
+
+    // Verify signer_address endpoint returns the same checksummed address.
+    let rpc_address = srv
+        .signer_address()
+        .await
+        .expect("signer_address should succeed");
+    assert_eq!(rpc_address, signer.address.to_string());
 }
