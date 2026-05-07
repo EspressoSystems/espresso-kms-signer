@@ -15,7 +15,10 @@
 ///
 use std::sync::Arc;
 
-use alloy::primitives::{address, U256};
+use alloy::{
+    eips::eip2718::Decodable2718,
+    primitives::{address, U256},
+};
 use espresso_kms_signer::{
     rpc::{SignerRpcServer, SignerServer},
     signer::KmsSigner,
@@ -73,7 +76,26 @@ async fn localstack_signs_eip1559_transaction() {
         .await
         .expect("signing should succeed");
 
-    assert!(result.starts_with("0x"));
     let bytes = alloy::primitives::hex::decode(&result[2..]).unwrap();
-    assert_eq!(bytes[0], 0x02, "expected EIP-1559 type byte");
+    let tx =
+        alloy::consensus::TxEnvelope::decode_2718_exact(&bytes).expect("invalid EIP-2718 encoding");
+
+    let alloy::consensus::TxEnvelope::Eip1559(signed) = tx else {
+        panic!("expected EIP-1559 transaction");
+    };
+
+    // Verify fields round-trip correctly.
+    let inner = signed.tx();
+    assert_eq!(inner.chain_id, chain_id);
+    assert_eq!(inner.nonce, 0);
+    assert_eq!(inner.gas_limit, 21000);
+    assert_eq!(inner.value, alloy::primitives::U256::from(1u64));
+
+    // Verify the recovered signer matches the KMS-derived address.
+    use alloy::consensus::SignableTransaction;
+    let recovered = signed
+        .signature()
+        .recover_address_from_prehash(&signed.tx().signature_hash())
+        .expect("failed to recover signer");
+    assert_eq!(recovered, signer.address);
 }

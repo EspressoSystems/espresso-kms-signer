@@ -69,6 +69,39 @@ Optionally restrict signing to a single BatchInbox address:
 ALLOWED_TO=0xYourBatchInboxAddress
 ```
 
+## Manual RPC calls
+
+With the signer running, you can call it directly with `curl`:
+
+```bash
+# Health check
+curl -s -X POST http://127.0.0.1:8547 \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"health_status","params":[],"id":1}'
+
+# Sign an EIP-1559 transaction (substitute the address logged at startup)
+curl -s -X POST http://127.0.0.1:8547 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_signTransaction",
+    "params": [{
+      "from":                 "0x<address-from-startup-log>",
+      "to":                   "0xff00000000000000000000000000000011155111",
+      "gas":                  "0x5208",
+      "maxFeePerGas":         "0x3B9ACA00",
+      "maxPriorityFeePerGas": "0xF4240",
+      "value":                "0x1",
+      "nonce":                "0x0",
+      "chainId":              "0xAA36A7"
+    }],
+    "id": 1
+  }'
+```
+
+A successful response returns a `0x`-prefixed RLP-encoded signed transaction ready to broadcast.
+`chainId` must match `CHAIN_ID` (`0xAA36A7` = 11155111 for Sepolia).
+
 ## Test fixtures
 
 The JSON files under `tests/fixtures/` are committed expected outputs produced by a small Go program that uses op-geth's `TransactionArgs` encoding. Re-run the generator only if the wire format changes:
