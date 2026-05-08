@@ -17,7 +17,8 @@ RUN mkdir src \
     && echo 'fn main(){}' > src/main.rs \
     && echo '' > src/lib.rs \
     && cargo build --release --target x86_64-unknown-linux-musl \
-    && rm -rf src target/x86_64-unknown-linux-musl/release/deps/espresso*
+    && rm -rf src target/x86_64-unknown-linux-musl/release/deps/espresso* \
+              target/x86_64-unknown-linux-musl/release/libespresso*
 
 COPY src ./src
 RUN cargo build --release --target x86_64-unknown-linux-musl
