@@ -15,6 +15,10 @@ pub trait SignerRpc {
     #[method(name = "health_status")]
     async fn health_status(&self) -> RpcResult<serde_json::Value>;
 
+    /// Returns the Ethereum address managed by this signer.
+    #[method(name = "signer_address")]
+    async fn signer_address(&self) -> RpcResult<String>;
+
     #[method(name = "eth_signTransaction")]
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String>;
 }
@@ -38,6 +42,10 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
             "version": env!("CARGO_PKG_VERSION"),
             "status": "ok"
         }))
+    }
+
+    async fn signer_address(&self) -> RpcResult<String> {
+        Ok(self.signer.address().to_string())
     }
 
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String> {
@@ -117,8 +125,8 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
 mod tests {
     use super::*;
     use alloy::{
-        consensus::TypedTransaction,
-        primitives::{address, U256},
+        consensus::{SignableTransaction, TypedTransaction},
+        primitives::{address, TxKind, U256},
     };
     use std::net::SocketAddr;
 
@@ -249,23 +257,56 @@ mod tests {
 
     #[tokio::test]
     async fn valid_request_returns_signed_rlp() {
-        let srv = server();
-        let args = base_args(srv.signer.address());
-        let result = srv.eth_sign_transaction(args).await.unwrap();
-        assert!(result.starts_with("0x"));
-        // Must decode as a valid EIP-2718 transaction.
-        let bytes = hex::decode(&result[2..]).unwrap();
-        assert!(!bytes.is_empty());
-        assert_eq!(bytes[0], 0x02); // EIP-1559 type byte
-    }
+        use alloy::{
+            consensus::{SignableTransaction, TxEnvelope},
+            eips::{
+                eip2718::Decodable2718,
+                eip2930::{AccessList, AccessListItem},
+            },
+        };
 
-    #[tokio::test]
-    async fn allowlist_passes_when_to_matches() {
-        let signer = Arc::new(TestSigner::new());
         let allowed = address!("ff00000000000000000000000000000011155111");
+        let signer = Arc::new(TestSigner::new());
         let config = test_config(Some(vec![allowed]));
         let srv = SignerServer::new(signer.clone(), config);
-        let args = base_args(signer.address());
-        assert!(srv.eth_sign_transaction(args).await.is_ok());
+        let from = signer.address();
+
+        let mut args = base_args(from);
+        args.access_list = Some(AccessList(vec![AccessListItem {
+            address: address!("0000000000000000000000000000000000000003"),
+            storage_keys: vec![alloy::primitives::B256::ZERO],
+        }]));
+
+        let result = srv.eth_sign_transaction(args).await.unwrap();
+        let bytes = hex::decode(&result[2..]).unwrap();
+        let tx = TxEnvelope::decode_2718_exact(&bytes).expect("invalid EIP-2718 encoding");
+
+        let TxEnvelope::Eip1559(signed) = tx else {
+            panic!("expected EIP-1559 transaction");
+        };
+
+        let inner = signed.tx();
+        assert_eq!(inner.chain_id, CHAIN_ID);
+        assert_eq!(inner.nonce, 0);
+        assert_eq!(inner.gas_limit, 21000);
+        assert_eq!(inner.max_fee_per_gas, 1_000_000_000);
+        assert_eq!(inner.max_priority_fee_per_gas, 1_000_000);
+        assert_eq!(inner.value, U256::from(1u64));
+        assert_eq!(inner.to, TxKind::Call(allowed));
+        assert_eq!(inner.access_list.0.len(), 1);
+        assert_eq!(
+            inner.access_list.0[0].address,
+            address!("0000000000000000000000000000000000000003")
+        );
+        assert_eq!(
+            inner.access_list.0[0].storage_keys,
+            vec![alloy::primitives::B256::ZERO]
+        );
+
+        let recovered = signed
+            .signature()
+            .recover_address_from_prehash(&signed.tx().signature_hash())
+            .expect("failed to recover signer");
+        assert_eq!(recovered, from);
     }
 }
