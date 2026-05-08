@@ -5,7 +5,7 @@
 FROM --platform=$BUILDPLATFORM rust:1.87-alpine AS builder
 
 # aws-lc-sys (pulled in by aws-sdk-kms) requires cmake, perl, and make.
-RUN apk add --no-cache musl-dev cmake perl make
+RUN apk add --no-cache musl-dev cmake perl make nasm
 
 RUN rustup target add x86_64-unknown-linux-musl
 
