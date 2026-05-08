@@ -2,8 +2,9 @@ name: Docker
 
 on:
   push:
-    branches: ["main"]
+    branches: ["base"]
     tags: ["v*"]
+  workflow_dispatch:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
