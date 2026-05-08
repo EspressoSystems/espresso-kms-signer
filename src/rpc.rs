@@ -15,6 +15,10 @@ pub trait SignerRpc {
     #[method(name = "health_status")]
     async fn health_status(&self) -> RpcResult<serde_json::Value>;
 
+    /// Returns the Ethereum address managed by this signer.
+    #[method(name = "signer_address")]
+    async fn signer_address(&self) -> RpcResult<String>;
+
     #[method(name = "eth_signTransaction")]
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String>;
 }
@@ -38,6 +42,10 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
             "version": env!("CARGO_PKG_VERSION"),
             "status": "ok"
         }))
+    }
+
+    async fn signer_address(&self) -> RpcResult<String> {
+        Ok(self.signer.address().to_string())
     }
 
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String> {
