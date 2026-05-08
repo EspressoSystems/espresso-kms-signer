@@ -2,7 +2,7 @@
 # Multi-stage musl static build → distroless base (REQ-M-002).
 # Target image < 20 MB, runs as non-root (uid 65532 = nonroot in distroless).
 
-FROM --platform=$BUILDPLATFORM rust:1.90-alpine AS builder
+FROM --platform=$BUILDPLATFORM rust:1.91-alpine AS builder
 
 # aws-lc-sys (pulled in by aws-sdk-kms) requires cmake, perl, and make.
 RUN apk add --no-cache musl-dev cmake perl make nasm
