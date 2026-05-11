@@ -1,6 +1,18 @@
+//! JSON-RPC surface consumed by op-batcher's `SignerClient`.
+//!
+//! Sources (optimism-espresso-integration):
+//! - op-service/signer/client.go      → `health_status`, `eth_signTransaction`
+//! - op-service/signer/espresso.go    → `eth_sign` (Espresso batch auth)
+//!
+//! `opsigner_signBlockPayload[V2]` also exist on `SignerClient` but are only
+//! invoked by op-node/op-proposer, so they are intentionally out of scope here.
+
 use std::sync::Arc;
 
-use alloy::{eips::eip2718::Encodable2718, primitives::hex};
+use alloy::{
+    eips::eip2718::Encodable2718,
+    primitives::{hex, Address, Bytes, B256},
+};
 use jsonrpsee::{
     core::{async_trait, RpcResult},
     proc_macros::rpc,
@@ -23,6 +35,11 @@ pub trait SignerRpc {
 
     #[method(name = "eth_signTransaction")]
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String>;
+
+    /// Sign a 32-byte digest. Non-standard `eth_sign`: signs the input directly
+    /// (no Ethereum message prefix), matching op-batcher's Espresso batch-auth path.
+    #[method(name = "eth_sign")]
+    async fn eth_sign(&self, address: Address, data: Bytes) -> RpcResult<String>;
 }
 
 pub struct SignerServer<S> {
@@ -118,6 +135,29 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
 
         Ok(format!("0x{}", hex::encode(envelope.encoded_2718())))
     }
+
+    async fn eth_sign(&self, address: Address, data: Bytes) -> RpcResult<String> {
+        if address != self.signer.address() {
+            return Err(ErrorObjectOwned::from(SignerError::FromMismatch {
+                got: format!("{address:#x}"),
+                expected: format!("{:#x}", self.signer.address()),
+            }));
+        }
+        let hash = B256::try_from(data.as_ref()).map_err(|_| {
+            ErrorObjectOwned::from(SignerError::InvalidField(format!(
+                "eth_sign expects a 32-byte digest, got {} bytes",
+                data.len()
+            )))
+        })?;
+        info!(address = %address, digest = %hash, "signing request received, calling KMS");
+        let sig = self.signer.sign_hash(&hash).await.map_err(|err| {
+            error!(error = %err, "KMS hash signing failed");
+            ErrorObjectOwned::owned(crate::error::SERVER_ERROR, "KMS signing failed", None::<()>)
+        })?;
+        // `as_rsy` emits r||s||y_parity (0/1), matching go-ethereum's `crypto.Sign`
+        // — the format op-batcher's `crypto.SigToPub` verify path expects.
+        Ok(format!("0x{}", hex::encode(sig.as_rsy())))
+    }
 }
 
 #[cfg(test)]
@@ -152,6 +192,12 @@ mod tests {
             tx: &mut TypedTransaction,
         ) -> Result<alloy::primitives::Signature, alloy::signers::Error> {
             alloy::network::TxSigner::sign_transaction(&self.0, tx).await
+        }
+        async fn sign_hash(
+            &self,
+            hash: &B256,
+        ) -> Result<alloy::primitives::Signature, alloy::signers::Error> {
+            alloy::signers::Signer::sign_hash(&self.0, hash).await
         }
     }
 
@@ -308,5 +354,49 @@ mod tests {
             .recover_address_from_prehash(&signed.tx().signature_hash())
             .expect("failed to recover signer");
         assert_eq!(recovered, from);
+    }
+
+    #[tokio::test]
+    async fn eth_sign_recovers_signer_address() {
+        let srv = server();
+        let from = srv.signer.address();
+        let digest = B256::from_slice(&alloy::primitives::keccak256(b"hello").0);
+
+        let sig_hex = srv
+            .eth_sign(from, Bytes::from(digest.as_slice().to_vec()))
+            .await
+            .unwrap();
+
+        let sig_bytes = hex::decode(&sig_hex[2..]).unwrap();
+        assert_eq!(sig_bytes.len(), 65);
+        let sig = alloy::primitives::Signature::try_from(sig_bytes.as_slice()).unwrap();
+        let recovered = sig.recover_address_from_prehash(&digest).unwrap();
+        assert_eq!(recovered, from);
+    }
+
+    #[tokio::test]
+    async fn eth_sign_rejects_wrong_address() {
+        let srv = server();
+        let digest = B256::ZERO;
+        let err = srv
+            .eth_sign(
+                address!("0000000000000000000000000000000000000001"),
+                Bytes::from(digest.as_slice().to_vec()),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), -32000);
+        assert!(err.message().contains("`from` mismatch"));
+    }
+
+    #[tokio::test]
+    async fn eth_sign_rejects_non_32_byte_input() {
+        let srv = server();
+        let err = srv
+            .eth_sign(srv.signer.address(), Bytes::from_static(b"too short"))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), -32602);
+        assert!(err.message().contains("32-byte"));
     }
 }

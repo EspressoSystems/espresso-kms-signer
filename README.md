@@ -97,10 +97,25 @@ curl -s -X POST http://127.0.0.1:8547 \
     }],
     "id": 1
   }'
+
+# Sign a 32-byte digest (op-batcher's Espresso batch-auth path via `eth_sign`).
+# `data` must be exactly 32 bytes; the response is r||s||v hex with v in {0,1}.
+curl -s -X POST http://127.0.0.1:8547 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_sign",
+    "params": [
+      "0x<address-from-startup-log>",
+      "0x0000000000000000000000000000000000000000000000000000000000000001"
+    ],
+    "id": 1
+  }'
 ```
 
-A successful response returns a `0x`-prefixed RLP-encoded signed transaction ready to broadcast.
-`chainId` must match `CHAIN_ID` (`0xAA36A7` = 11155111 for Sepolia).
+`eth_signTransaction` returns a `0x`-prefixed RLP-encoded signed transaction ready to broadcast;
+`chainId` must match `CHAIN_ID` (`0xAA36A7` = 11155111 for Sepolia). `eth_sign` returns a 65-byte
+hex signature over the supplied digest with no Ethereum message prefix.
 
 ## Test fixtures
 
