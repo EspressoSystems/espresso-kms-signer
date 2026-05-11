@@ -99,7 +99,8 @@ curl -s -X POST http://127.0.0.1:8547 \
   }'
 
 # Sign a 32-byte digest (op-batcher's Espresso batch-auth path via `eth_sign`).
-# `data` must be exactly 32 bytes; the response is r||s||v hex with v in {0,1}.
+# `data` must decode to exactly 32 bytes; accepted as base64 (op-batcher's
+# wire format — Go's default JSON encoding of `[]byte`) or `0x`-hex (curl).
 curl -s -X POST http://127.0.0.1:8547 \
   -H 'Content-Type: application/json' \
   -d '{
@@ -115,7 +116,7 @@ curl -s -X POST http://127.0.0.1:8547 \
 
 `eth_signTransaction` returns a `0x`-prefixed RLP-encoded signed transaction ready to broadcast;
 `chainId` must match `CHAIN_ID` (`0xAA36A7` = 11155111 for Sepolia). `eth_sign` returns a 65-byte
-hex signature over the supplied digest with no Ethereum message prefix.
+hex signature over the supplied digest (`r||s||v` with `v ∈ {0,1}`), with no Ethereum message prefix.
 
 ## Test fixtures
 

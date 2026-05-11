@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
@@ -46,9 +45,12 @@ type signFixture struct {
 	ExpectedSig string        `json:"expectedSig"`
 }
 
+// Matches op-service/signer/espresso.go: raw []byte (base64 on the wire) is
+// what op-batcher actually sends. Do NOT swap for hexutil.Bytes — that would
+// produce hex output and silently diverge from the live wire format.
 type signFixtureIn struct {
 	Address common.Address `json:"address"`
-	Data    hexutil.Bytes  `json:"data"`
+	Data    []byte         `json:"data"`
 }
 
 const (

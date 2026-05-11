@@ -17,8 +17,9 @@ use std::sync::Arc;
 
 use alloy::{
     eips::eip2718::Decodable2718,
-    primitives::{address, hex, keccak256, Bytes, Signature, U256},
+    primitives::{address, hex, keccak256, Signature, U256},
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use espresso_kms_signer::{
     rpc::{SignerRpcServer, SignerServer},
     signer::KmsSigner,
@@ -132,7 +133,7 @@ async fn localstack_eth_sign_digest_recovers_signer() {
 
     let digest = keccak256(b"espresso-batch-payload");
     let result = srv
-        .eth_sign(signer.address, Bytes::from(digest.as_slice().to_vec()))
+        .eth_sign(signer.address, BASE64.encode(digest.as_slice()))
         .await
         .expect("eth_sign should succeed");
 

@@ -11,8 +11,9 @@ use std::sync::Arc;
 
 use alloy::{
     eips::eip2718::Encodable2718,
-    primitives::{hex, Address, Bytes, B256},
+    primitives::{hex, Address, B256},
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use jsonrpsee::{
     core::{async_trait, RpcResult},
     proc_macros::rpc,
@@ -38,8 +39,10 @@ pub trait SignerRpc {
 
     /// Sign a 32-byte digest. Non-standard `eth_sign`: signs the input directly
     /// (no Ethereum message prefix), matching op-batcher's Espresso batch-auth path.
+    /// `data` is decoded as base64 (op-batcher's wire format — Go's `json.Marshal`
+    /// of `[]byte`) or as 0x-prefixed hex (curl-friendly).
     #[method(name = "eth_sign")]
-    async fn eth_sign(&self, address: Address, data: Bytes) -> RpcResult<String>;
+    async fn eth_sign(&self, address: Address, data: String) -> RpcResult<String>;
 }
 
 pub struct SignerServer<S> {
@@ -136,17 +139,22 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
         Ok(format!("0x{}", hex::encode(envelope.encoded_2718())))
     }
 
-    async fn eth_sign(&self, address: Address, data: Bytes) -> RpcResult<String> {
+    async fn eth_sign(&self, address: Address, data: String) -> RpcResult<String> {
         if address != self.signer.address() {
             return Err(ErrorObjectOwned::from(SignerError::FromMismatch {
                 got: format!("{address:#x}"),
                 expected: format!("{:#x}", self.signer.address()),
             }));
         }
-        let hash = B256::try_from(data.as_ref()).map_err(|_| {
+        let raw = decode_eth_sign_data(&data).map_err(|e| {
+            ErrorObjectOwned::from(SignerError::InvalidField(format!(
+                "eth_sign: {e}"
+            )))
+        })?;
+        let hash = B256::try_from(raw.as_slice()).map_err(|_| {
             ErrorObjectOwned::from(SignerError::InvalidField(format!(
                 "eth_sign expects a 32-byte digest, got {} bytes",
-                data.len()
+                raw.len()
             )))
         })?;
         info!(address = %address, digest = %hash, "signing request received, calling KMS");
@@ -158,6 +166,18 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
         // — the format op-batcher's `crypto.SigToPub` verify path expects.
         Ok(format!("0x{}", hex::encode(sig.as_rsy())))
     }
+}
+
+/// Decode op-batcher's eth_sign `data` parameter, accepting either base64
+/// (Go's default JSON encoding of `[]byte`, used by op-service/signer) or
+/// 0x-prefixed hex (manual/curl use).
+fn decode_eth_sign_data(s: &str) -> Result<Vec<u8>, String> {
+    if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        return hex::decode(rest).map_err(|e| format!("invalid hex: {e}"));
+    }
+    BASE64
+        .decode(s.as_bytes())
+        .map_err(|e| format!("invalid base64: {e}"))
 }
 
 #[cfg(test)]
@@ -363,7 +383,7 @@ mod tests {
         let digest = B256::from_slice(&alloy::primitives::keccak256(b"hello").0);
 
         let sig_hex = srv
-            .eth_sign(from, Bytes::from(digest.as_slice().to_vec()))
+            .eth_sign(from, BASE64.encode(digest.as_slice()))
             .await
             .unwrap();
 
@@ -381,7 +401,7 @@ mod tests {
         let err = srv
             .eth_sign(
                 address!("0000000000000000000000000000000000000001"),
-                Bytes::from(digest.as_slice().to_vec()),
+                BASE64.encode(digest.as_slice()),
             )
             .await
             .unwrap_err();
@@ -393,7 +413,7 @@ mod tests {
     async fn eth_sign_rejects_non_32_byte_input() {
         let srv = server();
         let err = srv
-            .eth_sign(srv.signer.address(), Bytes::from_static(b"too short"))
+            .eth_sign(srv.signer.address(), BASE64.encode(b"too short"))
             .await
             .unwrap_err();
         assert_eq!(err.code(), -32602);

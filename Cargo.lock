@@ -2013,6 +2013,7 @@ dependencies = [
  "alloy",
  "aws-config",
  "aws-sdk-kms",
+ "base64",
  "eyre",
  "jsonrpsee",
  "rustls 0.23.40",

@@ -2,9 +2,10 @@ use alloy::{
     consensus::TypedTransaction,
     eips::eip2718::Encodable2718,
     network::TxSigner,
-    primitives::{hex, Address, Bytes, B256},
+    primitives::{hex, Address, B256},
     signers::{local::PrivateKeySigner, Signer},
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use espresso_kms_signer::tx_builder::TransactionArgs;
 use std::path::Path;
 
@@ -70,7 +71,9 @@ struct SignFixture {
 #[derive(serde::Deserialize)]
 struct SignFixtureInput {
     address: Address,
-    data: Bytes,
+    /// Matches op-batcher's wire shape: a base64-encoded byte string
+    /// (Go's default `json.Marshal` of `[]byte`).
+    data: String,
 }
 
 async fn run_sign_fixture(path: &Path) {
@@ -87,7 +90,10 @@ async fn run_sign_fixture(path: &Path) {
         fixture.description
     );
 
-    let digest = B256::try_from(fixture.input.data.as_ref())
+    let raw = BASE64
+        .decode(fixture.input.data.as_bytes())
+        .unwrap_or_else(|e| panic!("{}: invalid base64: {e}", fixture.description));
+    let digest = B256::try_from(raw.as_slice())
         .unwrap_or_else(|_| panic!("{}: data is not 32 bytes", fixture.description));
 
     let sig = Signer::sign_hash(&signer, &digest)
