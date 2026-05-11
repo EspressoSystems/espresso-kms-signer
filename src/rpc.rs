@@ -12,8 +12,10 @@ use crate::{error::SignerError, signer::Signer, tx_builder::TransactionArgs, Con
 
 #[rpc(server)]
 pub trait SignerRpc {
+    /// Returns the signer version. Matches the op-signer convention so that
+    /// op-batcher's `pingVersion` ( `var v string` ) can unmarshal the response.
     #[method(name = "health_status")]
-    async fn health_status(&self) -> RpcResult<serde_json::Value>;
+    async fn health_status(&self) -> RpcResult<String>;
 
     /// Returns the Ethereum address managed by this signer.
     #[method(name = "signer_address")]
@@ -36,12 +38,9 @@ impl<S: Signer> SignerServer<S> {
 
 #[async_trait]
 impl<S: Signer> SignerRpcServer for SignerServer<S> {
-    async fn health_status(&self) -> RpcResult<serde_json::Value> {
+    async fn health_status(&self) -> RpcResult<String> {
         debug!("health check");
-        Ok(serde_json::json!({
-            "version": env!("CARGO_PKG_VERSION"),
-            "status": "ok"
-        }))
+        Ok(env!("CARGO_PKG_VERSION").to_string())
     }
 
     async fn signer_address(&self) -> RpcResult<String> {
@@ -182,6 +181,7 @@ mod tests {
             value: Some(U256::from(1u64)),
             nonce: Some(U256::from(0u64)),
             data: None,
+            input: None,
             chain_id: Some(U256::from(CHAIN_ID)),
             access_list: None,
             blob_fee_cap: None,

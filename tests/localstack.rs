@@ -65,6 +65,7 @@ async fn localstack_signs_eip1559_transaction() {
         value: Some(U256::from(1u64)),
         nonce: Some(U256::from(0u64)),
         data: None,
+        input: None,
         chain_id: Some(U256::from(chain_id)),
         access_list: None,
         blob_fee_cap: None,
