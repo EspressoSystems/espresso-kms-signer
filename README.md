@@ -99,8 +99,9 @@ curl -s -X POST http://127.0.0.1:8547 \
   }'
 
 # Sign a 32-byte digest (op-batcher's Espresso batch-auth path via `eth_sign`).
-# `data` must decode to exactly 32 bytes; accepted as base64 (op-batcher's
-# wire format — Go's default JSON encoding of `[]byte`) or `0x`-hex (curl).
+# `data` is base64 — the exact wire format op-batcher sends (Go's default
+# JSON encoding of `[]byte`). It must decode to exactly 32 bytes.
+# The example below is base64 of a 32-byte digest of all zeros except the last byte = 1.
 curl -s -X POST http://127.0.0.1:8547 \
   -H 'Content-Type: application/json' \
   -d '{
@@ -108,7 +109,7 @@ curl -s -X POST http://127.0.0.1:8547 \
     "method": "eth_sign",
     "params": [
       "0x<address-from-startup-log>",
-      "0x0000000000000000000000000000000000000000000000000000000000000001"
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE="
     ],
     "id": 1
   }'

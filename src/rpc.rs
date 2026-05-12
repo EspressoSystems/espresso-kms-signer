@@ -39,8 +39,8 @@ pub trait SignerRpc {
 
     /// Sign a 32-byte digest. Non-standard `eth_sign`: signs the input directly
     /// (no Ethereum message prefix), matching op-batcher's Espresso batch-auth path.
-    /// `data` is decoded as base64 (op-batcher's wire format — Go's `json.Marshal`
-    /// of `[]byte`) or as 0x-prefixed hex (curl-friendly).
+    /// `data` is base64 — Go's default JSON encoding of `[]byte`, what
+    /// op-service/signer puts on the wire.
     #[method(name = "eth_sign")]
     async fn eth_sign(&self, address: Address, data: String) -> RpcResult<String>;
 }
@@ -146,9 +146,9 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
                 expected: format!("{:#x}", self.signer.address()),
             }));
         }
-        let raw = decode_eth_sign_data(&data).map_err(|e| {
+        let raw = BASE64.decode(data.as_bytes()).map_err(|e| {
             ErrorObjectOwned::from(SignerError::InvalidField(format!(
-                "eth_sign: {e}"
+                "eth_sign: invalid base64: {e}"
             )))
         })?;
         let hash = B256::try_from(raw.as_slice()).map_err(|_| {
@@ -164,27 +164,16 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
         })?;
         // `as_rsy` emits r||s||y_parity (0/1), matching go-ethereum's `crypto.Sign`
         // — the format op-batcher's `crypto.SigToPub` verify path expects.
+        info!(address = %address, digest = %hash, "hash signed successfully");
         Ok(format!("0x{}", hex::encode(sig.as_rsy())))
     }
-}
-
-/// Decode op-batcher's eth_sign `data` parameter, accepting either base64
-/// (Go's default JSON encoding of `[]byte`, used by op-service/signer) or
-/// 0x-prefixed hex (manual/curl use).
-fn decode_eth_sign_data(s: &str) -> Result<Vec<u8>, String> {
-    if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        return hex::decode(rest).map_err(|e| format!("invalid hex: {e}"));
-    }
-    BASE64
-        .decode(s.as_bytes())
-        .map_err(|e| format!("invalid base64: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloy::{
-        consensus::{SignableTransaction, TypedTransaction},
+        consensus::TypedTransaction,
         primitives::{address, TxKind, U256},
     };
     use std::net::SocketAddr;
@@ -418,5 +407,16 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.code(), -32602);
         assert!(err.message().contains("32-byte"));
+    }
+
+    #[tokio::test]
+    async fn eth_sign_rejects_invalid_base64() {
+        let srv = server();
+        let err = srv
+            .eth_sign(srv.signer.address(), "!!!not base64!!!".to_string())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), -32602);
+        assert!(err.message().contains("invalid base64"));
     }
 }

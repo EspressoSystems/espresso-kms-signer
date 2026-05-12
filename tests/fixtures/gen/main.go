@@ -20,10 +20,10 @@ import (
 	"os"
 	"path/filepath"
 
+	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
 	uint256 "github.com/holiman/uint256"
 )
 
@@ -35,22 +35,14 @@ type txFixture struct {
 	ExpectedRLP string                    `json:"expectedRlp"`
 }
 
-// signFixture mirrors the shape the Rust eth_sign fixtures read. The input
-// matches the on-wire shape of `eth_sign(address, data)` as called by
-// op-batcher (op-service/signer/espresso.go).
+// signFixture stores the JSON-RPC `params` array verbatim as it would appear
+// on the wire from op-batcher's signer client. See ethSignBasic for how it is
+// produced; the goal is to never reconstruct the wire format by hand.
 type signFixture struct {
-	Description string        `json:"description"`
-	PrivateKey  string        `json:"privateKey"`
-	Input       signFixtureIn `json:"input"`
-	ExpectedSig string        `json:"expectedSig"`
-}
-
-// Matches op-service/signer/espresso.go: raw []byte (base64 on the wire) is
-// what op-batcher actually sends. Do NOT swap for hexutil.Bytes — that would
-// produce hex output and silently diverge from the live wire format.
-type signFixtureIn struct {
-	Address common.Address `json:"address"`
-	Data    []byte         `json:"data"`
+	Description string          `json:"description"`
+	PrivateKey  string          `json:"privateKey"`
+	Params      json.RawMessage `json:"params"`
+	ExpectedSig string          `json:"expectedSig"`
 }
 
 const (
@@ -163,22 +155,24 @@ func makeFixture(desc string, key *ecdsa.PrivateKey, signer types.Signer, tx *ty
 	}
 }
 
-// ethSignBasic mirrors op-batcher's local-key batch-auth signing path:
-// crypto.Sign(keccak256(payload), batcherPrivateKey). See
-// op-node/rollup/derive/espresso_batch.go:ToEspressoTransaction.
+// ethSignBasic produces the JSON-RPC params bytes that go-ethereum's rpc client
+// places on the wire for `signerClient.Sign(ctx, addr, digest)` — see
+// op-service/signer/espresso.go and rpc/client.go:newMessage, which both reduce
+// to `json.Marshal(paramsIn)` on the variadic args.
 func ethSignBasic(key *ecdsa.PrivateKey, from common.Address) signFixture {
 	digest := crypto.Keccak256([]byte("espresso-batch-payload"))
 	sig, err := crypto.Sign(digest, key)
 	if err != nil {
 		log.Fatalf("eth_sign_basic: %v", err)
 	}
+	params, err := json.Marshal([]any{from, digest})
+	if err != nil {
+		log.Fatalf("eth_sign_basic params: %v", err)
+	}
 	return signFixture{
 		Description: "eth_sign of a keccak256 digest",
 		PrivateKey:  testPrivKeyHex,
-		Input: signFixtureIn{
-			Address: from,
-			Data:    digest,
-		},
+		Params:      params,
 		ExpectedSig: "0x" + hex.EncodeToString(sig),
 	}
 }

@@ -13,7 +13,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/consensys/gnark-crypto v0.18.1 // indirect
-	github.com/cpuguy83/go-md2man/v2 v2.0.5 // indirect
+	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
 	github.com/crate-crypto/go-eth-kzg v1.5.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
 	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
@@ -52,3 +52,15 @@ require (
 )
 
 replace github.com/ethereum/go-ethereum => github.com/celo-org/op-geth v1.101411.1-0.20260316145005-3a40c398c038
+
+// Track HEAD of the Espresso fork's current long-lived integration branch.
+// This is the actual source of truth for what op-batcher calls in production
+// — upstream Optimism doesn't contain `op-service/signer/espresso.go`
+// (which defines `eth_sign`).
+//
+// Bump with:
+//   cd tests/fixtures/gen && \
+//     go get github.com/ethereum-optimism/optimism@celo-integration-rebase-17
+//
+// Update the branch name above when the rebase number advances.
+replace github.com/ethereum-optimism/optimism => github.com/EspressoSystems/optimism-espresso-integration v0.7.0

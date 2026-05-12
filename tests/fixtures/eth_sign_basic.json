@@ -1,9 +1,9 @@
 {
   "description": "eth_sign of a keccak256 digest",
   "privateKey": "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-  "input": {
-    "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
-    "data": "9MGRbGDxagJNXSW/MsoJ8wMOq9BGFnJ8Xs4Lg90F0K8="
-  },
+  "params": [
+    "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+    "9MGRbGDxagJNXSW/MsoJ8wMOq9BGFnJ8Xs4Lg90F0K8="
+  ],
   "expectedSig": "0xa74330dc590b0ecf0b15175d0048dda47be05087fd4ddb9cbb74ebb3bf8b86b06d5321ac36ccc338b59b6a4f6366558585e24fbd8c206a95b8c81ba02d10975c00"
 }
