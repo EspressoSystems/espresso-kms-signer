@@ -2,7 +2,7 @@
 # Multi-stage musl static build → distroless base (REQ-M-002).
 # Target image < 20 MB, runs as non-root (uid 65532 = nonroot in distroless).
 
-FROM --platform=$BUILDPLATFORM rust:1.87-alpine AS builder
+FROM --platform=$BUILDPLATFORM rust:1.91-alpine AS builder
 
 # aws-lc-sys (pulled in by aws-sdk-kms) requires cmake, perl, and make.
 RUN apk add --no-cache musl-dev cmake perl make
@@ -11,14 +11,7 @@ RUN rustup target add x86_64-unknown-linux-musl
 
 WORKDIR /build
 
-# Cache dependencies before copying source.
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src \
-    && echo 'fn main(){}' > src/main.rs \
-    && echo '' > src/lib.rs \
-    && cargo build --release --target x86_64-unknown-linux-musl \
-    && rm -rf src target/x86_64-unknown-linux-musl/release/deps/espresso*
-
 COPY src ./src
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
