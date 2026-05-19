@@ -140,6 +140,8 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
     }
 
     async fn eth_sign(&self, address: Address, data: String) -> RpcResult<String> {
+        // `address` is on the wire per op-batcher's signer protocol; validated
+        // here to catch --signer.address misconfiguration before any KMS call.
         if address != self.signer.address() {
             return Err(ErrorObjectOwned::from(SignerError::FromMismatch {
                 got: format!("{address:#x}"),
@@ -151,20 +153,20 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
                 "eth_sign: invalid base64: {e}"
             )))
         })?;
-        let hash = B256::try_from(raw.as_slice()).map_err(|_| {
+        let digest = B256::try_from(raw.as_slice()).map_err(|_| {
             ErrorObjectOwned::from(SignerError::InvalidField(format!(
                 "eth_sign expects a 32-byte digest, got {} bytes",
                 raw.len()
             )))
         })?;
-        info!(address = %address, digest = %hash, "signing request received, calling KMS");
-        let sig = self.signer.sign_hash(&hash).await.map_err(|err| {
-            error!(error = %err, "KMS hash signing failed");
+        info!(address = %address, digest = %digest, "signing request received, calling KMS");
+        let sig = self.signer.sign_hash(&digest).await.map_err(|err| {
+            error!(error = %err, "KMS digest signing failed");
             ErrorObjectOwned::owned(crate::error::SERVER_ERROR, "KMS signing failed", None::<()>)
         })?;
         // `as_rsy` emits r||s||y_parity (0/1), matching go-ethereum's `crypto.Sign`
         // — the format op-batcher's `crypto.SigToPub` verify path expects.
-        info!(address = %address, digest = %hash, "hash signed successfully");
+        info!(address = %address, digest = %digest, "digest signed successfully");
         Ok(format!("0x{}", hex::encode(sig.as_rsy())))
     }
 }
