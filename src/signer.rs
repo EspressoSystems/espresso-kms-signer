@@ -1,8 +1,8 @@
 use alloy::{
     consensus::TypedTransaction,
     network::TxSigner,
-    primitives::{Address, Signature},
-    signers::aws::AwsSigner,
+    primitives::{Address, Signature, B256},
+    signers::{aws::AwsSigner, Signer as AlloySigner},
 };
 use aws_config::BehaviorVersion;
 use eyre::Result;
@@ -18,6 +18,8 @@ pub trait Signer: Send + Sync + 'static {
         &self,
         tx: &mut TypedTransaction,
     ) -> Result<Signature, alloy::signers::Error>;
+    /// Sign a precomputed 32-byte digest. Matches go-ethereum's `crypto.Sign`.
+    async fn sign_hash(&self, hash: &B256) -> Result<Signature, alloy::signers::Error>;
 }
 
 /// Thin wrapper around `AwsSigner` — the only module that touches signing
@@ -52,5 +54,9 @@ impl Signer for KmsSigner {
         tx: &mut TypedTransaction,
     ) -> Result<Signature, alloy::signers::Error> {
         self.inner.sign_transaction(tx).await
+    }
+
+    async fn sign_hash(&self, hash: &B256) -> Result<Signature, alloy::signers::Error> {
+        AlloySigner::sign_hash(&self.inner, hash).await
     }
 }

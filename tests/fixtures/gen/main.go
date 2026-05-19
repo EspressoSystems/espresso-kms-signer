@@ -1,9 +1,12 @@
-// Generates (TransactionArgs JSON, expected signed RLP) fixture pairs using
-// op-geth's TransactionArgs and a known private key. Run with:
+// Generates (TransactionArgs JSON, expected signed RLP) fixture pairs by calling
+// op-service/signer's NewTransactionArgsFromTransaction directly, so the wire
+// shape stays pinned to whatever op-batcher actually sends. Run with:
 //
 //	go run . -out ../
 //
-// The output files are committed; re-run only when TransactionArgs encoding changes.
+// Pinned to upstream ethereum-optimism/optimism; valid as long as
+// EspressoSystems/optimism-espresso-integration leaves op-service/signer
+// untouched. If that ever changes, swap in a `replace` directive.
 package main
 
 import (
@@ -17,36 +20,29 @@ import (
 	"os"
 	"path/filepath"
 
+	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	uint256 "github.com/holiman/uint256"
 )
 
-// fixture mirrors the shape our Rust test reads.
-type fixture struct {
-	Description string          `json:"description"`
-	PrivateKey  string          `json:"privateKey"`
-	Input       transactionArgs `json:"input"`
-	ExpectedRLP string          `json:"expectedRlp"`
+// txFixture mirrors the shape the Rust tx-builder fixtures read.
+type txFixture struct {
+	Description string                    `json:"description"`
+	PrivateKey  string                    `json:"privateKey"`
+	Input       *opsigner.TransactionArgs `json:"input"`
+	ExpectedRLP string                    `json:"expectedRlp"`
 }
 
-// transactionArgs matches go-ethereum's internal/ethapi.TransactionArgs JSON shape.
-// We redeclare it here to avoid importing the internal package.
-type transactionArgs struct {
-	From                 *common.Address  `json:"from,omitempty"`
-	To                   *common.Address  `json:"to,omitempty"`
-	Gas                  *hexutil.Uint64  `json:"gas,omitempty"`
-	GasPrice             *hexutil.Big     `json:"gasPrice,omitempty"`
-	MaxFeePerGas         *hexutil.Big     `json:"maxFeePerGas,omitempty"`
-	MaxPriorityFeePerGas *hexutil.Big     `json:"maxPriorityFeePerGas,omitempty"`
-	Value                *hexutil.Big     `json:"value,omitempty"`
-	Nonce                *hexutil.Uint64  `json:"nonce,omitempty"`
-	Data                 *hexutil.Bytes   `json:"data,omitempty"`
-	ChainID              *hexutil.Big     `json:"chainId,omitempty"`
-	BlobFeeCap           *hexutil.Big     `json:"blobFeeCap,omitempty"`
-	BlobHashes           []common.Hash    `json:"blobHashes,omitempty"`
+// signFixture stores the JSON-RPC `params` array verbatim as it would appear
+// on the wire from op-batcher's signer client. See ethSignBasic for how it is
+// produced; the goal is to never reconstruct the wire format by hand.
+type signFixture struct {
+	Description string          `json:"description"`
+	PrivateKey  string          `json:"privateKey"`
+	Params      json.RawMessage `json:"params"`
+	ExpectedSig string          `json:"expectedSig"`
 }
 
 const (
@@ -67,40 +63,36 @@ func main() {
 	to := common.HexToAddress("0xff00000000000000000000000000000011155111")
 	signer := types.NewCancunSigner(big.NewInt(chainID))
 
-	fixtures := []struct {
-		name string
-		f    fixture
-	}{
-		{
-			name: "eip1559_basic",
-			f:    eip1559Basic(privKey, signer, from, to),
-		},
-		{
-			name: "eip1559_with_data",
-			f:    eip1559WithData(privKey, signer, from, to),
-		},
-		{
-			name: "eip4844_basic",
-			f:    eip4844Basic(privKey, signer, from, to),
-		},
+	txFixtures := map[string]txFixture{
+		"eip1559_basic":     eip1559Basic(privKey, signer, from, to),
+		"eip1559_with_data": eip1559WithData(privKey, signer, from, to),
+		"eip4844_basic":     eip4844Basic(privKey, signer, from, to),
+	}
+	for name, f := range txFixtures {
+		writeFixture(*outDir, name, f)
 	}
 
-	for _, tc := range fixtures {
-		path := filepath.Join(*outDir, tc.name+".json")
-		data, err := json.MarshalIndent(tc.f, "", "  ")
-		if err != nil {
-			log.Fatalf("marshal %s: %v", tc.name, err)
-		}
-		if err := os.WriteFile(path, data, 0644); err != nil {
-			log.Fatalf("write %s: %v", path, err)
-		}
-		fmt.Printf("wrote %s\n", path)
+	signFixtures := map[string]signFixture{
+		"eth_sign_basic": ethSignBasic(privKey, from),
+	}
+	for name, f := range signFixtures {
+		writeFixture(*outDir, name, f)
 	}
 }
 
-func eip1559Basic(key *ecdsa.PrivateKey, signer types.Signer, from, to common.Address) fixture {
-	gas := hexutil.Uint64(21000)
-	nonce := hexutil.Uint64(0)
+func writeFixture(outDir, name string, f any) {
+	path := filepath.Join(outDir, name+".json")
+	data, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		log.Fatalf("marshal %s: %v", name, err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		log.Fatalf("write %s: %v", path, err)
+	}
+	fmt.Printf("wrote %s\n", path)
+}
+
+func eip1559Basic(key *ecdsa.PrivateKey, signer types.Signer, from, to common.Address) txFixture {
 	tx := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   big.NewInt(chainID),
 		Nonce:     0,
@@ -110,22 +102,10 @@ func eip1559Basic(key *ecdsa.PrivateKey, signer types.Signer, from, to common.Ad
 		To:        &to,
 		Value:     big.NewInt(1),
 	})
-	return makeFixture("EIP-1559 basic transfer", key, signer, tx, transactionArgs{
-		From:                 &from,
-		To:                   &to,
-		Gas:                  &gas,
-		MaxFeePerGas:         (*hexutil.Big)(big.NewInt(1_000_000_000)),
-		MaxPriorityFeePerGas: (*hexutil.Big)(big.NewInt(1_000_000)),
-		Value:                (*hexutil.Big)(big.NewInt(1)),
-		Nonce:                &nonce,
-		ChainID:              (*hexutil.Big)(big.NewInt(chainID)),
-	})
+	return makeFixture("EIP-1559 basic transfer", key, signer, tx, from)
 }
 
-func eip1559WithData(key *ecdsa.PrivateKey, signer types.Signer, from, to common.Address) fixture {
-	gas := hexutil.Uint64(50000)
-	nonce := hexutil.Uint64(1)
-	data := hexutil.Bytes(common.FromHex("0xdeadbeef"))
+func eip1559WithData(key *ecdsa.PrivateKey, signer types.Signer, from, to common.Address) txFixture {
 	tx := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   big.NewInt(chainID),
 		Nonce:     1,
@@ -136,22 +116,10 @@ func eip1559WithData(key *ecdsa.PrivateKey, signer types.Signer, from, to common
 		Value:     big.NewInt(0),
 		Data:      common.FromHex("0xdeadbeef"),
 	})
-	return makeFixture("EIP-1559 with calldata", key, signer, tx, transactionArgs{
-		From:                 &from,
-		To:                   &to,
-		Gas:                  &gas,
-		MaxFeePerGas:         (*hexutil.Big)(big.NewInt(2_000_000_000)),
-		MaxPriorityFeePerGas: (*hexutil.Big)(big.NewInt(2_000_000)),
-		Value:                (*hexutil.Big)(big.NewInt(0)),
-		Nonce:                &nonce,
-		Data:                 &data,
-		ChainID:              (*hexutil.Big)(big.NewInt(chainID)),
-	})
+	return makeFixture("EIP-1559 with calldata", key, signer, tx, from)
 }
 
-func eip4844Basic(key *ecdsa.PrivateKey, signer types.Signer, from, to common.Address) fixture {
-	gas := hexutil.Uint64(21000)
-	nonce := hexutil.Uint64(2)
+func eip4844Basic(key *ecdsa.PrivateKey, signer types.Signer, from, to common.Address) txFixture {
 	blobHash := common.HexToHash("0x010657f37554c781402a22917dee2f75def7ab966d7b770905398eba3c444014")
 	tx := types.NewTx(&types.BlobTx{
 		ChainID:    uint256From(chainID),
@@ -164,21 +132,12 @@ func eip4844Basic(key *ecdsa.PrivateKey, signer types.Signer, from, to common.Ad
 		BlobFeeCap: uint256From(100),
 		BlobHashes: []common.Hash{blobHash},
 	})
-	return makeFixture("EIP-4844 with blob hash", key, signer, tx, transactionArgs{
-		From:                 &from,
-		To:                   &to,
-		Gas:                  &gas,
-		MaxFeePerGas:         (*hexutil.Big)(big.NewInt(1_000_000_000)),
-		MaxPriorityFeePerGas: (*hexutil.Big)(big.NewInt(1_000_000)),
-		Value:                (*hexutil.Big)(big.NewInt(0)),
-		Nonce:                &nonce,
-		ChainID:              (*hexutil.Big)(big.NewInt(chainID)),
-		BlobFeeCap:           (*hexutil.Big)(big.NewInt(100)),
-		BlobHashes:           []common.Hash{blobHash},
-	})
+	return makeFixture("EIP-4844 with blob hash", key, signer, tx, from)
 }
 
-func makeFixture(desc string, key *ecdsa.PrivateKey, signer types.Signer, tx *types.Transaction, args transactionArgs) fixture {
+// makeFixture signs the transaction and builds the fixture input by calling the
+// exact same constructor op-batcher uses on the wire.
+func makeFixture(desc string, key *ecdsa.PrivateKey, signer types.Signer, tx *types.Transaction, from common.Address) txFixture {
 	signed, err := types.SignTx(tx, signer, key)
 	if err != nil {
 		log.Fatalf("sign %s: %v", desc, err)
@@ -187,11 +146,34 @@ func makeFixture(desc string, key *ecdsa.PrivateKey, signer types.Signer, tx *ty
 	if err != nil {
 		log.Fatalf("encode %s: %v", desc, err)
 	}
-	return fixture{
+	args := opsigner.NewTransactionArgsFromTransaction(big.NewInt(chainID), &from, signed.WithoutBlobTxSidecar())
+	return txFixture{
 		Description: desc,
 		PrivateKey:  testPrivKeyHex,
 		Input:       args,
 		ExpectedRLP: "0x" + hex.EncodeToString(rlp),
+	}
+}
+
+// ethSignBasic produces the JSON-RPC params bytes that go-ethereum's rpc client
+// places on the wire for `signerClient.Sign(ctx, addr, digest)` — see
+// op-service/signer/espresso.go and rpc/client.go:newMessage, which both reduce
+// to `json.Marshal(paramsIn)` on the variadic args.
+func ethSignBasic(key *ecdsa.PrivateKey, from common.Address) signFixture {
+	digest := crypto.Keccak256([]byte("espresso-batch-payload"))
+	sig, err := crypto.Sign(digest, key)
+	if err != nil {
+		log.Fatalf("eth_sign_basic: %v", err)
+	}
+	params, err := json.Marshal([]any{from, digest})
+	if err != nil {
+		log.Fatalf("eth_sign_basic params: %v", err)
+	}
+	return signFixture{
+		Description: "eth_sign of a keccak256 digest",
+		PrivateKey:  testPrivKeyHex,
+		Params:      params,
+		ExpectedSig: "0x" + hex.EncodeToString(sig),
 	}
 }
 

@@ -1,6 +1,19 @@
+//! JSON-RPC surface consumed by op-batcher's `SignerClient`.
+//!
+//! Sources (optimism-espresso-integration):
+//! - op-service/signer/client.go      → `health_status`, `eth_signTransaction`
+//! - op-service/signer/espresso.go    → `eth_sign` (Espresso batch auth)
+//!
+//! `opsigner_signBlockPayload[V2]` also exist on `SignerClient` but are only
+//! invoked by op-node/op-proposer, so they are intentionally out of scope here.
+
 use std::sync::Arc;
 
-use alloy::{eips::eip2718::Encodable2718, primitives::hex};
+use alloy::{
+    eips::eip2718::Encodable2718,
+    primitives::{hex, Address, B256},
+};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use jsonrpsee::{
     core::{async_trait, RpcResult},
     proc_macros::rpc,
@@ -12,8 +25,10 @@ use crate::{error::SignerError, signer::Signer, tx_builder::TransactionArgs, Con
 
 #[rpc(server)]
 pub trait SignerRpc {
+    /// Returns the signer version. Matches the op-signer convention so that
+    /// op-batcher's `pingVersion` ( `var v string` ) can unmarshal the response.
     #[method(name = "health_status")]
-    async fn health_status(&self) -> RpcResult<serde_json::Value>;
+    async fn health_status(&self) -> RpcResult<String>;
 
     /// Returns the Ethereum address managed by this signer.
     #[method(name = "signer_address")]
@@ -21,6 +36,13 @@ pub trait SignerRpc {
 
     #[method(name = "eth_signTransaction")]
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String>;
+
+    /// Sign a 32-byte digest. Non-standard `eth_sign`: signs the input directly
+    /// (no Ethereum message prefix), matching op-batcher's Espresso batch-auth path.
+    /// `data` is base64 — Go's default JSON encoding of `[]byte`, what
+    /// op-service/signer puts on the wire.
+    #[method(name = "eth_sign")]
+    async fn eth_sign(&self, address: Address, data: String) -> RpcResult<String>;
 }
 
 pub struct SignerServer<S> {
@@ -36,12 +58,9 @@ impl<S: Signer> SignerServer<S> {
 
 #[async_trait]
 impl<S: Signer> SignerRpcServer for SignerServer<S> {
-    async fn health_status(&self) -> RpcResult<serde_json::Value> {
+    async fn health_status(&self) -> RpcResult<String> {
         debug!("health check");
-        Ok(serde_json::json!({
-            "version": env!("CARGO_PKG_VERSION"),
-            "status": "ok"
-        }))
+        Ok(env!("CARGO_PKG_VERSION").to_string())
     }
 
     async fn signer_address(&self) -> RpcResult<String> {
@@ -119,13 +138,44 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
 
         Ok(format!("0x{}", hex::encode(envelope.encoded_2718())))
     }
+
+    async fn eth_sign(&self, address: Address, data: String) -> RpcResult<String> {
+        // `address` is on the wire per op-batcher's signer protocol; validated
+        // here to catch --signer.address misconfiguration before any KMS call.
+        if address != self.signer.address() {
+            return Err(ErrorObjectOwned::from(SignerError::FromMismatch {
+                got: format!("{address:#x}"),
+                expected: format!("{:#x}", self.signer.address()),
+            }));
+        }
+        let raw = BASE64.decode(data.as_bytes()).map_err(|e| {
+            ErrorObjectOwned::from(SignerError::InvalidField(format!(
+                "eth_sign: invalid base64: {e}"
+            )))
+        })?;
+        let digest = B256::try_from(raw.as_slice()).map_err(|_| {
+            ErrorObjectOwned::from(SignerError::InvalidField(format!(
+                "eth_sign expects a 32-byte digest, got {} bytes",
+                raw.len()
+            )))
+        })?;
+        info!(address = %address, digest = %digest, "signing request received, calling KMS");
+        let sig = self.signer.sign_hash(&digest).await.map_err(|err| {
+            error!(error = %err, "KMS digest signing failed");
+            ErrorObjectOwned::owned(crate::error::SERVER_ERROR, "KMS signing failed", None::<()>)
+        })?;
+        // `as_rsy` emits r||s||y_parity (0/1), matching go-ethereum's `crypto.Sign`
+        // — the format op-batcher's `crypto.SigToPub` verify path expects.
+        info!(address = %address, digest = %digest, "digest signed successfully");
+        Ok(format!("0x{}", hex::encode(sig.as_rsy())))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloy::{
-        consensus::{SignableTransaction, TypedTransaction},
+        consensus::TypedTransaction,
         primitives::{address, TxKind, U256},
     };
     use std::net::SocketAddr;
@@ -153,6 +203,12 @@ mod tests {
             tx: &mut TypedTransaction,
         ) -> Result<alloy::primitives::Signature, alloy::signers::Error> {
             alloy::network::TxSigner::sign_transaction(&self.0, tx).await
+        }
+        async fn sign_hash(
+            &self,
+            hash: &B256,
+        ) -> Result<alloy::primitives::Signature, alloy::signers::Error> {
+            alloy::signers::Signer::sign_hash(&self.0, hash).await
         }
     }
 
@@ -182,6 +238,7 @@ mod tests {
             value: Some(U256::from(1u64)),
             nonce: Some(U256::from(0u64)),
             data: None,
+            input: None,
             chain_id: Some(U256::from(CHAIN_ID)),
             access_list: None,
             blob_fee_cap: None,
@@ -308,5 +365,60 @@ mod tests {
             .recover_address_from_prehash(&signed.tx().signature_hash())
             .expect("failed to recover signer");
         assert_eq!(recovered, from);
+    }
+
+    #[tokio::test]
+    async fn eth_sign_recovers_signer_address() {
+        let srv = server();
+        let from = srv.signer.address();
+        let digest = B256::from_slice(&alloy::primitives::keccak256(b"hello").0);
+
+        let sig_hex = srv
+            .eth_sign(from, BASE64.encode(digest.as_slice()))
+            .await
+            .unwrap();
+
+        let sig_bytes = hex::decode(&sig_hex[2..]).unwrap();
+        assert_eq!(sig_bytes.len(), 65);
+        let sig = alloy::primitives::Signature::try_from(sig_bytes.as_slice()).unwrap();
+        let recovered = sig.recover_address_from_prehash(&digest).unwrap();
+        assert_eq!(recovered, from);
+    }
+
+    #[tokio::test]
+    async fn eth_sign_rejects_wrong_address() {
+        let srv = server();
+        let digest = B256::ZERO;
+        let err = srv
+            .eth_sign(
+                address!("0000000000000000000000000000000000000001"),
+                BASE64.encode(digest.as_slice()),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), -32000);
+        assert!(err.message().contains("`from` mismatch"));
+    }
+
+    #[tokio::test]
+    async fn eth_sign_rejects_non_32_byte_input() {
+        let srv = server();
+        let err = srv
+            .eth_sign(srv.signer.address(), BASE64.encode(b"too short"))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), -32602);
+        assert!(err.message().contains("32-byte"));
+    }
+
+    #[tokio::test]
+    async fn eth_sign_rejects_invalid_base64() {
+        let srv = server();
+        let err = srv
+            .eth_sign(srv.signer.address(), "!!!not base64!!!".to_string())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), -32602);
+        assert!(err.message().contains("invalid base64"));
     }
 }

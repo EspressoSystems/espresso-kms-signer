@@ -17,8 +17,9 @@ use std::sync::Arc;
 
 use alloy::{
     eips::eip2718::Decodable2718,
-    primitives::{address, U256},
+    primitives::{address, hex, keccak256, Signature, U256},
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use espresso_kms_signer::{
     rpc::{SignerRpcServer, SignerServer},
     signer::KmsSigner,
@@ -65,6 +66,7 @@ async fn localstack_signs_eip1559_transaction() {
         value: Some(U256::from(1u64)),
         nonce: Some(U256::from(0u64)),
         data: None,
+        input: None,
         chain_id: Some(U256::from(chain_id)),
         access_list: None,
         blob_fee_cap: None,
@@ -105,4 +107,47 @@ async fn localstack_signs_eip1559_transaction() {
         .await
         .expect("signer_address should succeed");
     assert_eq!(rpc_address, signer.address.to_string());
+}
+
+#[tokio::test]
+#[ignore = "requires localstack with a secp256k1 KMS key (see file header)"]
+async fn localstack_eth_sign_digest_recovers_signer() {
+    let (key_id, chain_id) =
+        localstack_config().expect("AWS_KMS_KEY_ID and AWS_ENDPOINT_URL must be set");
+
+    let signer = Arc::new(
+        KmsSigner::new(key_id, chain_id)
+            .await
+            .expect("failed to connect to localstack KMS"),
+    );
+
+    let config = Arc::new(Config {
+        kms_key_id: "localstack".into(),
+        chain_id,
+        listen_addr: "127.0.0.1:0".parse().unwrap(),
+        allowed_to: None,
+        tls: None,
+    });
+
+    let srv = SignerServer::new(signer.clone(), config);
+
+    let digest = keccak256(b"espresso-batch-payload");
+    let result = srv
+        .eth_sign(signer.address, BASE64.encode(digest.as_slice()))
+        .await
+        .expect("eth_sign should succeed");
+
+    let sig_bytes = hex::decode(&result[2..]).expect("hex decode");
+    assert_eq!(sig_bytes.len(), 65);
+    assert!(
+        sig_bytes[64] < 2,
+        "v must be in {{0,1}} (go-ethereum convention), got {}",
+        sig_bytes[64]
+    );
+
+    let sig = Signature::try_from(sig_bytes.as_slice()).expect("valid signature");
+    let recovered = sig
+        .recover_address_from_prehash(&digest)
+        .expect("recovery should succeed");
+    assert_eq!(recovered, signer.address);
 }

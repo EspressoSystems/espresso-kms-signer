@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use clap::{Parser, Subcommand};
 use eyre::{Context, Result};
 use jsonrpsee::server::{serve_with_graceful_shutdown, stop_channel};
 use tokio::net::TcpListener;
@@ -13,8 +14,37 @@ use espresso_kms_signer::{
     Config,
 };
 
+#[derive(Parser)]
+#[command(version, about = "AWS KMS-backed Ethereum signer")]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Print the Ethereum address derived from the KMS key, then exit.
+    /// Output matches what the signer will report at runtime.
+    PrintAddress {
+        /// KMS key alias or key id.
+        #[arg(long)]
+        key_id: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    if let Some(Cmd::PrintAddress { key_id }) = cli.cmd {
+        // chain_id is irrelevant for address derivation; placeholder value.
+        let signer = KmsSigner::new(key_id, 0)
+            .await
+            .wrap_err("failed to derive address from KMS key")?;
+        println!("{:#x}", signer.address);
+        return Ok(());
+    }
+
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .map_err(|_| eyre::eyre!("failed to install rustls crypto provider"))?;

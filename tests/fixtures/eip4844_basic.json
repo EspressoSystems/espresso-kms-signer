@@ -5,15 +5,19 @@
     "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
     "to": "0xff00000000000000000000000000000011155111",
     "gas": "0x5208",
+    "gasPrice": null,
     "maxFeePerGas": "0x3b9aca00",
     "maxPriorityFeePerGas": "0xf4240",
     "value": "0x0",
     "nonce": "0x2",
+    "data": null,
+    "input": "0x",
+    "accessList": [],
     "chainId": "0xaa36a7",
-    "blobFeeCap": "0x64",
-    "blobHashes": [
+    "blobVersionedHashes": [
       "0x010657f37554c781402a22917dee2f75def7ab966d7b770905398eba3c444014"
-    ]
+    ],
+    "maxFeePerBlobGas": "0x64"
   },
   "expectedRlp": "0x03f88f83aa36a702830f4240843b9aca0082520894ff000000000000000000000000000000111551118080c064e1a0010657f37554c781402a22917dee2f75def7ab966d7b770905398eba3c44401480a0d3cd4d8daaae099107b063a5cf03a0a1566bd0deb7e332fd09bef95afc71a05da00e84cdb0a16bd1288c855c606a228e3c1ff4afbe1770280e3700f196d27dbcfb"
 }

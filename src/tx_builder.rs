@@ -7,7 +7,9 @@ use serde::Deserialize;
 
 use crate::error::SignerError;
 
-/// Wire shape of `eth_signTransaction` — matches go-ethereum's `TransactionArgs` JSON encoding.
+/// Wire shape of `eth_signTransaction` — matches go-ethereum's `TransactionArgs` JSON
+/// encoding as used by op-batcher's signer client (op-service/signer/transaction_args.go).
+/// Field names below mirror that struct's JSON tags; deviations are called out inline.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionArgs {
@@ -19,11 +21,18 @@ pub struct TransactionArgs {
     pub max_priority_fee_per_gas: Option<U256>,
     pub value: Option<U256>,
     pub nonce: Option<U256>,
+    // op-batcher serializes both fields (`data` is often null, `input` carries
+    // the calldata). Mirror that shape and resolve at use-time: `input` wins,
+    // matching go-ethereum's own `data()` helper.
     pub data: Option<Bytes>,
+    pub input: Option<Bytes>,
     pub chain_id: Option<U256>,
     pub access_list: Option<AccessList>,
-    // EIP-4844
+    // EIP-4844 — Go encodes these as `maxFeePerBlobGas` / `blobVersionedHashes`,
+    // not the camelCased Rust field names.
+    #[serde(rename = "maxFeePerBlobGas")]
     pub blob_fee_cap: Option<U256>,
+    #[serde(rename = "blobVersionedHashes")]
     pub blob_hashes: Option<Vec<B256>>,
 }
 
@@ -56,7 +65,8 @@ impl TransactionArgs {
             nonce: parse_field(self.nonce, "nonce")?,
             gas_limit: parse_field(self.gas, "gas")?,
             value: self.value.unwrap_or_default(),
-            input: self.data.unwrap_or_default(),
+            // Prefer `input` over `data` per go-ethereum's TransactionArgs.data() convention.
+            input: self.input.or(self.data).unwrap_or_default(),
             access_list: self.access_list.unwrap_or_default(),
         };
 
@@ -117,7 +127,8 @@ mod tests {
             max_priority_fee_per_gas: Some(U256::from(1_000_000u64)),
             value: Some(U256::from(1u64)),
             nonce: Some(U256::from(7u64)),
-            data: Some(Bytes::from_static(b"\xde\xad\xbe\xef")),
+            data: None,
+            input: Some(Bytes::from_static(b"\xde\xad\xbe\xef")),
             chain_id: Some(U256::from(11155111u64)),
             access_list: None,
             blob_fee_cap: None,
