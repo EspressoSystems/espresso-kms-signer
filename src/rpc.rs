@@ -2,7 +2,7 @@
 //!
 //! Sources (optimism-espresso-integration):
 //! - op-service/signer/client.go      → `health_status`, `eth_signTransaction`
-//! - op-service/signer/espresso.go    → `eth_sign` (Espresso batch auth)
+//! - op-service/signer/espresso.go    → `espresso_signBatch` (Espresso batch signing)
 //!
 //! `opsigner_signBlockPayload[V2]` also exist on `SignerClient` but are only
 //! invoked by op-node/op-proposer, so they are intentionally out of scope here.
@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use alloy::{
     eips::eip2718::Encodable2718,
-    primitives::{hex, Address, B256},
+    primitives::{hex, Address},
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use jsonrpsee::{
@@ -21,7 +21,10 @@ use jsonrpsee::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::{error::SignerError, signer::Signer, tx_builder::TransactionArgs, Config};
+use crate::{
+    batch_shape::validate_batch_shape, error::SignerError, signer::Signer,
+    tx_builder::TransactionArgs, Config,
+};
 
 #[rpc(server)]
 pub trait SignerRpc {
@@ -37,12 +40,12 @@ pub trait SignerRpc {
     #[method(name = "eth_signTransaction")]
     async fn eth_sign_transaction(&self, args: TransactionArgs) -> RpcResult<String>;
 
-    /// Sign a 32-byte digest. Non-standard `eth_sign`: signs the input directly
-    /// (no Ethereum message prefix), matching op-batcher's Espresso batch-auth path.
-    /// `data` is base64 — Go's default JSON encoding of `[]byte`, what
-    /// op-service/signer puts on the wire.
-    #[method(name = "eth_sign")]
-    async fn eth_sign(&self, address: Address, data: String) -> RpcResult<String>;
+    /// Sign an RLP-encoded Espresso batch. The sidecar now receives the batch
+    /// itself, validates its shape (REQ-SIDECAR-S-003), and computes
+    /// the keccak256 digest to sign. `payload` is base64 — Go's default JSON
+    /// encoding of `[]byte`, what op-service/signer puts on the wire.
+    #[method(name = "espresso_signBatch")]
+    async fn espresso_sign_batch(&self, address: Address, payload: String) -> RpcResult<String>;
 }
 
 pub struct SignerServer<S> {
@@ -139,7 +142,7 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
         Ok(format!("0x{}", hex::encode(envelope.encoded_2718())))
     }
 
-    async fn eth_sign(&self, address: Address, data: String) -> RpcResult<String> {
+    async fn espresso_sign_batch(&self, address: Address, payload: String) -> RpcResult<String> {
         // `address` is on the wire per op-batcher's signer protocol; validated
         // here to catch --signer.address misconfiguration before any KMS call.
         if address != self.signer.address() {
@@ -148,25 +151,28 @@ impl<S: Signer> SignerRpcServer for SignerServer<S> {
                 expected: format!("{:#x}", self.signer.address()),
             }));
         }
-        let raw = BASE64.decode(data.as_bytes()).map_err(|e| {
+        let raw = BASE64.decode(payload.as_bytes()).map_err(|e| {
             ErrorObjectOwned::from(SignerError::InvalidField(format!(
-                "eth_sign: invalid base64: {e}"
+                "espresso_signBatch: invalid base64: {e}"
             )))
         })?;
-        let digest = B256::try_from(raw.as_slice()).map_err(|_| {
+        validate_batch_shape(&raw).map_err(|e| {
             ErrorObjectOwned::from(SignerError::InvalidField(format!(
-                "eth_sign expects a 32-byte digest, got {} bytes",
-                raw.len()
+                "espresso_signBatch: payload is not shaped like an encoded batch: {e}"
             )))
         })?;
-        info!(address = %address, digest = %digest, "signing request received, calling KMS");
+        // The digest is computed here, never taken from the caller: signing
+        // keccak256 of the exact received bytes is what espresso-streamers'
+        // recovery expects (ToEspressoTransaction signs the same digest).
+        let digest = alloy::primitives::keccak256(&raw);
+        info!(address = %address, digest = %digest, payload_bytes = raw.len(), "batch signing request received, calling KMS");
         let sig = self.signer.sign_hash(&digest).await.map_err(|err| {
-            error!(error = %err, "KMS digest signing failed");
+            error!(error = %err, "KMS batch signing failed");
             ErrorObjectOwned::owned(crate::error::SERVER_ERROR, "KMS signing failed", None::<()>)
         })?;
         // `as_rsy` emits r||s||y_parity (0/1), matching go-ethereum's `crypto.Sign`
-        // — the format op-batcher's `crypto.SigToPub` verify path expects.
-        info!(address = %address, digest = %digest, "digest signed successfully");
+        // — the format the streamer's `crypto.SigToPub` recovery path expects.
+        info!(address = %address, digest = %digest, "batch signed successfully");
         Ok(format!("0x{}", hex::encode(sig.as_rsy())))
     }
 }
@@ -176,7 +182,7 @@ mod tests {
     use super::*;
     use alloy::{
         consensus::TypedTransaction,
-        primitives::{address, TxKind, U256},
+        primitives::{address, TxKind, B256, U256},
     };
     use std::net::SocketAddr;
 
@@ -367,32 +373,38 @@ mod tests {
         assert_eq!(recovered, from);
     }
 
+    // The fixture suite in tests/rpc_wire.rs exercises a real Go-encoded batch;
+    // these unit tests only need something shaped like one (batch_shape::MINIMAL_VALID_PAYLOAD).
+
     #[tokio::test]
-    async fn eth_sign_recovers_signer_address() {
+    async fn espresso_sign_batch_recovers_signer_address() {
         let srv = server();
         let from = srv.signer.address();
-        let digest = B256::from_slice(&alloy::primitives::keccak256(b"hello").0);
+        let payload = crate::batch_shape::MINIMAL_VALID_PAYLOAD;
 
         let sig_hex = srv
-            .eth_sign(from, BASE64.encode(digest.as_slice()))
+            .espresso_sign_batch(from, BASE64.encode(payload))
             .await
             .unwrap();
 
         let sig_bytes = hex::decode(&sig_hex[2..]).unwrap();
         assert_eq!(sig_bytes.len(), 65);
         let sig = alloy::primitives::Signature::try_from(sig_bytes.as_slice()).unwrap();
+        let digest = alloy::primitives::keccak256(payload);
         let recovered = sig.recover_address_from_prehash(&digest).unwrap();
-        assert_eq!(recovered, from);
+        assert_eq!(
+            recovered, from,
+            "signature must be over keccak256 of the payload bytes"
+        );
     }
 
     #[tokio::test]
-    async fn eth_sign_rejects_wrong_address() {
+    async fn espresso_sign_batch_rejects_wrong_address() {
         let srv = server();
-        let digest = B256::ZERO;
         let err = srv
-            .eth_sign(
+            .espresso_sign_batch(
                 address!("0000000000000000000000000000000000000001"),
-                BASE64.encode(digest.as_slice()),
+                BASE64.encode(crate::batch_shape::MINIMAL_VALID_PAYLOAD),
             )
             .await
             .unwrap_err();
@@ -401,24 +413,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn eth_sign_rejects_non_32_byte_input() {
+    async fn espresso_sign_batch_rejects_a_bare_digest() {
+        // The old eth_sign contract — a caller-supplied 32-byte digest — must
+        // now be refused before any KMS call (REQ-SIDECAR-S-003).
         let srv = server();
+        let digest = alloy::primitives::keccak256(b"anything");
         let err = srv
-            .eth_sign(srv.signer.address(), BASE64.encode(b"too short"))
+            .espresso_sign_batch(srv.signer.address(), BASE64.encode(digest.as_slice()))
             .await
             .unwrap_err();
         assert_eq!(err.code(), -32602);
-        assert!(err.message().contains("32-byte"));
-    }
-
-    #[tokio::test]
-    async fn eth_sign_rejects_invalid_base64() {
-        let srv = server();
-        let err = srv
-            .eth_sign(srv.signer.address(), "!!!not base64!!!".to_string())
-            .await
-            .unwrap_err();
-        assert_eq!(err.code(), -32602);
-        assert!(err.message().contains("invalid base64"));
+        assert!(err.message().contains("not shaped like an encoded batch"));
     }
 }

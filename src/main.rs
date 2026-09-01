@@ -55,7 +55,13 @@ async fn main() -> Result<()> {
         .init();
 
     let config = Config::from_env().wrap_err("invalid configuration")?;
-    info!(chain_id = config.chain_id, listen_addr = %config.listen_addr, "espresso-kms-signer starting");
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        supported_streamer = espresso_kms_signer::batch_shape::SUPPORTED_STREAMER_VERSION,
+        chain_id = config.chain_id,
+        listen_addr = %config.listen_addr,
+        "espresso-kms-signer starting"
+    );
 
     let signer = Arc::new(
         KmsSigner::new(config.kms_key_id.clone(), config.chain_id)

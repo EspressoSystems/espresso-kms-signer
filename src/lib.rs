@@ -1,3 +1,4 @@
+pub mod batch_shape;
 pub mod error;
 pub mod rpc;
 pub mod signer;

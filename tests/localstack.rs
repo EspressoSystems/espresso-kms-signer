@@ -111,7 +111,7 @@ async fn localstack_signs_eip1559_transaction() {
 
 #[tokio::test]
 #[ignore = "requires localstack with a secp256k1 KMS key (see file header)"]
-async fn localstack_eth_sign_digest_recovers_signer() {
+async fn localstack_espresso_sign_batch_recovers_signer() {
     let (key_id, chain_id) =
         localstack_config().expect("AWS_KMS_KEY_ID and AWS_ENDPOINT_URL must be set");
 
@@ -131,11 +131,13 @@ async fn localstack_eth_sign_digest_recovers_signer() {
 
     let srv = SignerServer::new(signer.clone(), config);
 
-    let digest = keccak256(b"espresso-batch-payload");
+    // The signature must be over keccak256 of the exact payload bytes, computed by the handler.
+    let payload = espresso_kms_signer::batch_shape::MINIMAL_VALID_PAYLOAD;
+    let digest = keccak256(payload);
     let result = srv
-        .eth_sign(signer.address, BASE64.encode(digest.as_slice()))
+        .espresso_sign_batch(signer.address, BASE64.encode(payload))
         .await
-        .expect("eth_sign should succeed");
+        .expect("espresso_signBatch should succeed");
 
     let sig_bytes = hex::decode(&result[2..]).expect("hex decode");
     assert_eq!(sig_bytes.len(), 65);
