@@ -2,7 +2,7 @@
 //!
 //! Sources (optimism-espresso-integration):
 //! - op-service/signer/client.go      → `health_status`, `eth_signTransaction`
-//! - op-service/signer/espresso.go    → `espresso_signBatch` (Espresso batch auth)
+//! - op-service/signer/espresso.go    → `espresso_signBatch` (Espresso batch signing)
 //!
 //! `opsigner_signBlockPayload[V2]` also exist on `SignerClient` but are only
 //! invoked by op-node/op-proposer, so they are intentionally out of scope here.

@@ -123,7 +123,7 @@ curl -s -X POST http://127.0.0.1:8547 \
     "id": 1
   }'
 
-# Sign an RLP-encoded Espresso batch (op-batcher's batch-auth path via
+# Sign an RLP-encoded Espresso batch (op-batcher's batch-signing path via
 # `espresso_signBatch`). The payload is base64 of the batch's RLP encoding —
 # the exact wire format op-batcher sends (Go's default JSON encoding of
 # `[]byte`). The sidecar validates the payload is shaped like an encoded batch
