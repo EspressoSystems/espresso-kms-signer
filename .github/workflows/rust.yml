@@ -32,6 +32,23 @@ jobs:
       - run: rustup show
       - run: cargo fmt --check
 
+  # Asserts the streamer version the shape check declares
+  # (SUPPORTED_STREAMER_VERSION in src/batch_shape.rs) equals the pin the fixtures
+  # are generated from (tests/fixtures/gen/go.mod). Keeps the two provably in sync.
+  streamer-version:
+    name: Streamer version pin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          pin=$(grep -oE 'espresso-streamers v[0-9]+\.[0-9]+\.[0-9]+' tests/fixtures/gen/go.mod | awk '{print $2}')
+          const=$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' src/batch_shape.rs | head -1)
+          echo "go.mod pin: '$pin'  |  SUPPORTED_STREAMER_VERSION: '$const'"
+          if [ -z "$pin" ] || [ "$pin" != "$const" ]; then
+            echo "::error::SUPPORTED_STREAMER_VERSION ($const) must equal the go.mod streamer pin ($pin)"
+            exit 1
+          fi
+
   # Regenerates the wire fixtures from the pinned Go dependencies and fails on
   # any diff. This is the drift detector between this sidecar and the
   # espresso-streamers batch encoding: if the pinned format no longer matches

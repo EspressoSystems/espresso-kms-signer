@@ -1,6 +1,6 @@
 [package]
 name = "espresso-kms-signer"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "AWS KMS signing sidecar for L1 batch submission transactions"
 

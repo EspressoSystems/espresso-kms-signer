@@ -178,6 +178,10 @@ The pin is fixed, so CI does not track upstream streamer releases. Batch-format 
 surfaces when you bump the pin, not before, which is the right moment since the sidecar
 redeploys together with the streamer anyway.
 
+The supported streamer version is recorded in `SUPPORTED_STREAMER_VERSION`
+(`src/batch_shape.rs`), which CI keeps equal to the go.mod pin, and it maps to the
+sidecar's major version. See [docs/VERSIONING.md](docs/VERSIONING.md).
+
 ## Test fixtures
 
 The JSON files under `tests/fixtures/` are committed expected outputs produced by a small Go program that uses op-geth's `TransactionArgs` encoding. Re-run the generator only if the wire format changes:

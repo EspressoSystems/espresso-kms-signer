@@ -12,6 +12,12 @@
 
 use alloy_rlp::Header;
 
+/// The espresso-streamers version whose `EspressoBatch` encoding this shape check
+/// targets. Must equal the pin in `tests/fixtures/gen/go.mod`; CI asserts it. When a
+/// new streamer version changes the batch format, bump both together and the sidecar's
+/// major version (see the versioning doc).
+pub const SUPPORTED_STREAMER_VERSION: &str = "v1.3.0";
+
 /// Pre-decode guard, not the security boundary (mTLS is). 4 MiB comfortably
 /// exceeds any real batch: a full L2 block of calldata is under 2 MiB.
 pub const MAX_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
