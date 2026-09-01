@@ -2,7 +2,7 @@ name: Rust
 
 on:
   push:
-    branches: ["main"]
+    branches: ["base"]
   pull_request:
 
 jobs:
@@ -31,3 +31,21 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup show
       - run: cargo fmt --check
+
+  # Regenerates the wire fixtures from the pinned Go dependencies and fails on
+  # any diff. This is the drift detector between this sidecar and the
+  # espresso-streamers batch encoding: if the pinned format no longer matches
+  # the committed fixtures, the change must be deliberate, not accidental.
+  fixtures:
+    name: Fixture drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tests/fixtures/gen/go.mod
+      - run: go run . -out ../
+        working-directory: tests/fixtures/gen
+      # add -N makes newly generated (untracked) fixtures visible to diff, so a
+      # fixture that exists only after regeneration also counts as drift.
+      - run: git add -N tests/fixtures && git diff --exit-code tests/fixtures
