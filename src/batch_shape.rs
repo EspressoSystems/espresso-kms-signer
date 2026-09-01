@@ -16,6 +16,10 @@ use alloy_rlp::Header;
 /// exceeds any real batch: a full L2 block of calldata is under 2 MiB.
 pub const MAX_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
 
+/// The smallest payload `validate_batch_shape` accepts: the RLP list `[ [], "", "", "" ]`.
+/// A stand-in batch for signing tests, since the sidecar decodes no field.
+pub const MINIMAL_VALID_PAYLOAD: [u8; 5] = [0xc4, 0xc0, 0x80, 0x80, 0x80];
+
 /// Checks that `payload` has the shape of an RLP-encoded Espresso batch.
 pub fn validate_batch_shape(payload: &[u8]) -> Result<(), String> {
     if payload.len() > MAX_PAYLOAD_BYTES {
@@ -64,8 +68,7 @@ mod tests {
 
     #[test]
     fn minimal_valid_shape_accepted() {
-        // [ [], "", "", "" ]
-        validate_batch_shape(&[0xc4, 0xc0, 0x80, 0x80, 0x80]).unwrap();
+        validate_batch_shape(&MINIMAL_VALID_PAYLOAD).unwrap();
     }
 
     #[test]
